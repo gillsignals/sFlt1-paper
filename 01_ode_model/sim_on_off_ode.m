@@ -1,11 +1,15 @@
 function [T_norm, Y_full, X_norm, I_norm] = sim_on_off_ode(sp, p, ...
     pulse_length, chase_length, time_interval, t50_X, I_ss, X_ss, conv_factor)
 
-% SIM_PULSE_CHASE_ODE   Simulate a pulse-chase experiment for sFlt1 trafficking 
-%                       with specified number of equations in one cell type.
+% SIM_ON_OFF_ODE   Simulate a pulse-chase experiment for sFlt1 trafficking 
+%                       without media change at end of pulse (just stop production).
 %   
 % INPUT
 % -----
+%
+% sp: struct of molecular species mapped to numerical indices
+%
+% p: struct of parameter names mapped to current values
 %
 % pulse_length:     length of pulse (in hours)
 %

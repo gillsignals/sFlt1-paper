@@ -4,17 +4,6 @@ function cost = hjk_combo_cost(k_try, kinghorn_T_exp, kinghorn_X_exp, kinghorn_I
     jung_cost_option, hornig_cost_option, kinghorn_cost_option)
 
 
-%% KEY QUESTION - how to balance sets of costs?
-% Jung has both X, I, 5 time points each (omitting trivial 0h)
-% (may need to count as 4 each because normalized to 8h, so that's also trivial)
-% Hornig has 6 nonzero X (omitting 0h and 3h)
-% Kinghorn has 40 I points (omitting trivial 0h) and 40 X points (omitting trivial 24h)
-% Or, reduce to 6 each by averaging across each time
-% how to weight these?
-%   different scales -> relative sensitivity
-%   different numbers of data points -> after talking to Feilim, first pass
-%       will not use any correction
-
 
 % hjk_combo_cost  Cost function to optimize trafficking parameters to 
 %               simultaneously fit Jung et al., 2012 pulse-chase data, 

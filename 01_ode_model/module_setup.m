@@ -12,7 +12,6 @@ end
 
 % set core parameter value set
 % jh_opt_median_230307: Jung-Hornig simultaneous optimization performed 3/7/23
-% kinghorn_2023_manuscript_draft: values from Kinghorn et al 2023 biorxiv (obs 4/2/23)
 param_set = "jh_opt_median_230307";
 
 % Status message options
@@ -63,13 +62,11 @@ end
 % assign number of cells - geometry taken from Hornig et al., 2000
 % 5000 HUVEC cells in 0.3 mL of media
 % (Jung paper didn't list number of cells? just confluency?)
-% FUTURE - put these in geom_cf struct for cleaner passing/export
 num_cells = 5000;   % number of cells
 Vx = 3e-4;          % extracellular volume (L/well)
 
 % Specify conversion factor: (#/cell -> pmol/well)
 % (#/cell * cells/well * pmol/# = pmol/well)
-% FUTURE - put these in geom_cf struct for cleaner passing/export
 Nav_pmol = 6.022e11; 
 conv_factor_pmol = num_cells ./ Nav_pmol;
 
@@ -77,10 +74,8 @@ conv_factor_pmol = num_cells ./ Nav_pmol;
 % pmol/well * mol/pmol * L/mL * g/mol * ng/g = ng/well
 % ng/mL = pmol/well * mol/pmol * L/mL * g/mol * ng/g * well/L
 %pmol_2_ngml = 1e-12 * 1e-3 * 1.1e5 * 1e9 / Vx;      % literature MW sFlt1: 110 kDa
-% FUTURE - put these in geom_cf struct for cleaner passing/export
 pmol_2_ngml = 1e-12 * 1e-3 * 9e4 * 1e9 / Vx;     % manuscript MW sFlt1: 90 kDa
 
 % specify conversion factor: (#/cell -> ng/mL)
-% FUTURE - put these in geom_cf struct for cleaner passing/export
 conv_factor_ngml = conv_factor_pmol * pmol_2_ngml;
 
