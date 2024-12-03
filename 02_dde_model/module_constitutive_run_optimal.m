@@ -1,7 +1,7 @@
 %% RUN CONSTITUTIVE SIMULATION WITH OPTIMAL PARAMETER SET
 
 % simulate constitutive results with optimal parameter set to store time course output
-[constitutive_sim_time, constitutive_sim_Y] = sim_secr_dde_v2(sp, p, "on", mat_delay, ...
+[constitutive_sim_time, constitutive_sim_Y] = sim_secr_dde(sp, p, "on", mat_delay, ...
     internalize_case, hornig_secr_end_time, time_interval, conv_factor_ngml, status_message);
 
 % store time courses in a single data structure

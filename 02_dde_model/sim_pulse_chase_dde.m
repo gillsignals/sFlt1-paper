@@ -1,8 +1,8 @@
-function [T_full, Y_full, X_frac, I_fc] = sim_pulse_chase_dde_v2(prod_decay, mat_case, ...
-        internalize_case, sp, p, pulse_length, chase_length, time_interval, conv_factor);
+function [T_full, Y_full, X_frac, I_fc] = sim_pulse_chase_dde(prod_decay, ~, ...
+        ~, sp, p, pulse_length, chase_length, time_interval, conv_factor);
 
-% SIM_PULSE_CHASE   Simulate a pulse-chase experiment for sFlt1 trafficking 
-%                   with specified number of equations in one cell type.
+% SIM_PULSE_CHASE_DDE   Simulate a pulse-chase experiment for sFlt1 trafficking 
+%                       with specified number of equations in one cell type.
 %   
 % INPUT
 % -----

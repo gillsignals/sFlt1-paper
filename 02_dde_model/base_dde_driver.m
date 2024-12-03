@@ -7,7 +7,7 @@ close all;
 % "base_on_off": run one simulation with equal periods of production and none
 % "vary_tau_on_off": run simulations with several values of tau
 % "base_model_opt": run optimization to experimental data 1000x
-run_mode = "vary_tau_on_off";
+run_mode = "base_model_opt";
 
 % Announce which case will run
 disp("Running case " + run_mode + "...")

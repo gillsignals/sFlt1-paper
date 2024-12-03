@@ -1,7 +1,7 @@
-function [T_final, Y_final] = sim_secr_dde_v2(sp, p, prod_case, mat_case, internalize_case, ...
+function [T_final, Y_final] = sim_secr_dde(sp, p, prod_case, mat_case, internalize_case, ...
     secr_end_time, time_interval, conv_factor, status_message)
 
-% SIM_SECR_DDE_V2  Simulate response to media change for sFlt1 trafficking 
+% SIM_SECR_DDE  Simulate response to media change for sFlt1 trafficking 
 %               with specified number of equations in one cell type.
 %   
 % INPUT
