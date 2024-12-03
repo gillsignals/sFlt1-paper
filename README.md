@@ -7,7 +7,7 @@ This code requires the Optimization Toolbox.
 
 ### `01_ode_model/`
 
-This folder contains code to simulate sFLT1 secretion as a system of 2 ordinary differential equations describing intracellular and extracellular sFLT1 pools.
+This folder contains code to simulate sFLT1 secretion as a system of 2 ordinary differential equations describing intracellular and extracellular sFLT1 pools. There is also code to optimize the model to experimental data.
 
 #### Driver file: `ode_driver.m`
 
@@ -37,7 +37,7 @@ Each driver mode calls some combination of these files.
 - `module_init_hjk_arrays.m`: Initialize output containers for simulation data
 - `module_setup.m`: Adjust initial parameter values, system geometry, and time spans
 
-##### Simulation functions
+##### Simulation functions and modules
 
 - `hjk_combo_cost.m`: Cost function to optimize trafficking parameters to simultaneously fit Jung et al., 2012 pulse-chase data, one Hornig et al., 2000 dataset, and control data from Kinghorn et al., 2023, within lsqnonlin using specified equations
 - `ode_eqns.m`: Equations used by `ode15s` solver to simulate sFLT1 secretion. Called by each of the `sim_` functions below.
@@ -52,7 +52,9 @@ Each driver mode calls some combination of these files.
 
 ### `02_dde_model
 
-This folder contains code to simulate sFLT1 secretion as a system of 2 delay differential equations describing intracellular and extracellular sFLT1 pools.
+This folder contains code to simulate sFLT1 secretion as a system of 2 delay differential equations describing intracellular and extracellular sFLT1 pools. 
+There is a fixed time delay between production and either secretion or intracellular degradation. 
+There is also code to optimize the model to experimental data.
 
 #### Driver file: `base_dde_driver.m`
 
@@ -91,7 +93,6 @@ These files are analogous to the similarly named files in `01_ode_model`.
 - `sim_pulse_chase_dde.m`: Simulate a pulse of labeled sFLT1 production followed by chase (stop production and set extracellular sFLT1 to 0)
 - `sim_secr_dde.m`: Simulate constitutive sFLT1 production 
 
-
 ##### Additional modules
 
 These files are analogous to the similarly named files in `01_ode_model`.
@@ -99,9 +100,9 @@ These files are analogous to the similarly named files in `01_ode_model`.
 - `module_constitutive_run_optimal.m`: Run constitutive simulation with optimal parameter values and report cost
 - `module_jung_run_optimal.m`: Run pulse-chase simulation with optimal parameter values and report cost
 
-### `03_candidate_models
+### `03_candidate_models`
 
-This folder ...
+This folder contains code to optimize 8 different systems of ordinary and delay differential equations to experimental data. The equations include some combination of temporal decay in production rate, delayed intracellular clearance, and internalization of extracellular sFLT1.
 
 #### Driver file: `driver_dde_candidate.m`
 
@@ -112,14 +113,9 @@ To run simulations related to Figures ___ and ___, run the driver file `driver_d
 - `"hornig_basic_run"`: single run for troubleshooting 
 - `"candidate_model_opt"`: multiple optimizations of each candidate model; adjust number of optimizations per model in file "module_hjk_opt_setup.m"
 
-
-
 ##### Exporting simulation outputs
 
-
-
-
-
+To export output data for analysis in R, set `save_params = 1` and `save_data = 1`, which will save timestamped output files in `01_ode_model/runs`. To run R scripts with these data, manually move output files to ________.
 
 #### Other files
 
@@ -138,12 +134,11 @@ These files are analogous to the similarly named files in previous modules.
 
 These files are analogous to the similarly named files in previous modules.
 
-- `dde_eqns.m`: Equations used by `dde23` solver to simulate sFLT1 secretion. Called by each of the `sim_` functions below.
+- `dde_fun.m`: Equations used by `dde23` solver to simulate sFLT1 secretion. Called by each of the `sim_` functions below.
 - `hjk_combo_cost.m`: Cost function to optimize trafficking parameters to simultaneously fit Jung et al., 2012 pulse-chase data, one Hornig et al., 2000 dataset, and control data from Kinghorn et al., 2023, within lsqnonlin using specified equations
 - `sim_on_off_dde.m`: Simulate a pulse of sFLT1 production without media change at end of pulse (just stop production).
 - `sim_pulse_chase_dde.m`: Simulate a pulse of labeled sFLT1 production followed by chase (stop production and set extracellular sFLT1 to 0)
 - `sim_secr_dde.m`: Simulate constitutive sFLT1 production 
-
 
 ##### Additional modules
 
@@ -152,10 +147,41 @@ These files are analogous to the similarly named files in previous modules.
 - `module_constitutive_run_optimal.m`: Run constitutive simulation with optimal parameter values and report cost
 - `module_jung_run_optimal.m`: Run pulse-chase simulation with optimal parameter values and report cost
 
+### `04_sensitivity`
 
+This folder contains code that performs various types of sensitivity analysis on the optimized system of delay differential equations.
 
+#### Driver file: `sens_analysis.m`
 
+To run simulations related to Figures ___ and ___, run the driver file `sens_analysis.m`. All other scripts in the folder are called within this driver.
 
+##### Driver run modes
+
+- `"base_const"`: constitutive secretion with base parameters
+- `"local_sens_const"`: local (x%) sensitivity analysis of constitutive case parameters 
+- `"sens_vary_inh_genchem"`: univariate sensitivity analysis - percent inhibition of individual parameters
+- `"sens_logscale_sqrt10"`: univariate sensitivity analysis - scale individual parameters by powers of sqrt(10)
+- `"explore_c1"`: Vary alpha and beta while keeping c1 = alpha*beta constant
+- `"explore_c2"`: Vary beta and gamma while keeping c2 = beta+gamma constant
+- `"explore_c1c2"`: Vary alpha, beta, and gamma while keeping c1 = alpha*beta and c2 = beta+gamma constant
+- `"sens_vary_base_inh_genchem"`: multivariate sensitivity analysis - from 5 different sets of initial {alpha, beta, gamma}, test percent inhibition of individual parameters
+
+#### Other files
+
+Each driver run mode calls some combination of these files
+
+##### Setup scripts
+
+These files are analogous to the similarly named files in previous modules.
+
+- `make_outdir.m`: Function to create a timestamped output directory
+- `module_setup.m`: Adjust initial parameter values, system geometry, and time spans
+
+##### Simulation functions
+
+- `dde_eqns.m`: Equations used by `dde23` solver to simulate sFLT1 secretion. Called by each of the `sim_` functions below.
+- `sim_secr_dde.m`: Simulate constitutive sFLT1 production 
+- `sim_secr_dde_inh_t0.m`: Simulate constitutive sFLT1 production 
 
 ## R code
 
