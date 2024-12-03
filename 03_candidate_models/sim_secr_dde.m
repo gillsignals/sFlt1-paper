@@ -1,4 +1,4 @@
-function [T_final, Y_final] = sim_secr_dde_v2(sp, p, prod_case, mat_case, internalize_case, ...
+function [T_final, Y_final] = sim_secr_dde(sp, p, prod_case, mat_case, internalize_case, ...
     secr_end_time, time_interval, conv_factor, status_message)
 
 % SIM_SECR_DDE_V2  Simulate response to media change for sFlt1 trafficking 
@@ -61,7 +61,7 @@ if ismember(status_message, [{'all'}])
     fprintf('Running simulation from hours %d to %d...\n', tspan(1), tspan(end));
 end
 
-sol_find_ss = dde23(@dde_fun_v2, p.tau, history_0, tspan, dde_options, ...
+sol_find_ss = dde23(@dde_fun, p.tau, history_0, tspan, dde_options, ...
     sp, p, prod_case, mat_case, internalize_case, conv_factor);
 
 T = tspan;
@@ -93,7 +93,7 @@ while max_delta > .005
         fprintf('Running simulation from hours %d to %d...\n', tspan(1), tspan(end));
     end
 
-    sol_find_ss = dde23(@dde_fun_v2, p.tau, sol_find_ss, tspan, dde_options, ...
+    sol_find_ss = dde23(@dde_fun, p.tau, sol_find_ss, tspan, dde_options, ...
     sp, p, prod_case, mat_case, internalize_case, conv_factor);
 
     Y_new = deval(sol_find_ss, tspan(2:end));
@@ -143,7 +143,7 @@ y0_ss(sp.I_deg) = 0;
 T_final = 0:time_interval:secr_end_time;
 
 % simulate time interval 
-sol = dde23(@dde_fun_v2, p.tau, y0_ss', T_final, dde_options,...
+sol = dde23(@dde_fun, p.tau, y0_ss', T_final, dde_options,...
     sp, p, prod_case, mat_case, internalize_case, conv_factor);
 
 % extract time and species values from simulation after media change

@@ -1,4 +1,4 @@
-function [T_full, Y_full, X_frac, I_fc] = sim_pulse_chase_dde_v2(prod_decay, mat_case, ...
+function [T_full, Y_full, X_frac, I_fc] = sim_pulse_chase_dde(prod_decay, mat_case, ...
         internalize_case, sp, p, pulse_length, chase_length, time_interval, conv_factor);
 
 % SIM_PULSE_CHASE   Simulate a pulse-chase experiment for sFlt1 trafficking 
@@ -54,7 +54,7 @@ history_0 = zeros(1, length(fieldnames(sp)));
 
 % starting from all species at 0, simulate 20 minutes of production
 
-sol_pulse = dde23(@dde_fun_v2, p.tau, history_0, pulse_tspan, dde_options, ...
+sol_pulse = dde23(@dde_fun, p.tau, history_0, pulse_tspan, dde_options, ...
     sp, p, prod_case, mat_case, internalize_case, conv_factor);
 
 % extract time and species values from pulse solution
@@ -91,7 +91,7 @@ y0_chase(sp.X) = 0;
 dde_options = ddeset(dde_options, 'InitialY', y0_chase);
 
 % starting after pulse, simulate 10 hours with no production
-sol_chase = dde23(@dde_fun_v2, p.tau, sol_pulse, chase_tspan, dde_options, ...
+sol_chase = dde23(@dde_fun, p.tau, sol_pulse, chase_tspan, dde_options, ...
     sp, p, prod_case, mat_case, internalize_case, conv_factor);
 
 % extract time and species values from chase solution

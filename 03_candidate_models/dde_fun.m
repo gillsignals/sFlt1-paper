@@ -1,4 +1,4 @@
-function dydt = dde_fun_v2(t, y, Z, sp, p, prod_case, mat_case, internalize_case, conv_factor)
+function dydt = dde_fun(t, y, Z, sp, p, prod_case, mat_case, internalize_case, conv_factor)
     
 % OUTPUT
 % dydt: rates of change of concentrations of molecules at time t

@@ -175,7 +175,7 @@ disp("Saving optimized parameters and time courses, if desired...")
         end
 
         % run simulation to steady state followed by media change and 72h followup
-        [sim_time, sim_y] = sim_secr_dde_v2(sp, p, prod_case, mat_case, internalize_case, ...
+        [sim_time, sim_y] = sim_secr_dde(sp, p, prod_case, mat_case, internalize_case, ...
             secr_end_time, time_interval, conv_factor_ngml, status_message);
         
 end

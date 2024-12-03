@@ -81,7 +81,7 @@ try
     jung_I_cost = zeros(length(jung_T_exp) - 1,1);
 
     % run simulation - DO NOT save parameters
-    [jung_sim_time, ~, sim_X_frac, sim_I_fc] = sim_pulse_chase_dde_v2(prod_case, mat_case, ...
+    [jung_sim_time, ~, sim_X_frac, sim_I_fc] = sim_pulse_chase_dde(prod_case, mat_case, ...
         internalize_case, sp, p, pulse_length, chase_length, time_interval, conv_factor);
 
 
@@ -134,7 +134,7 @@ try
     kinghorn_I_cost = zeros(length(kinghorn_T_exp),1);
 
         % run simulation to steady state followed by media change and 72h followup
-        [constitutive_sim_time, constitutive_sim_Y] = sim_secr_dde_v2(sp, p, "on", mat_case, ...
+        [constitutive_sim_time, constitutive_sim_Y] = sim_secr_dde(sp, p, "on", mat_case, ...
             internalize_case, hornig_secr_end_time, time_interval, conv_factor, status_message);
     
         
