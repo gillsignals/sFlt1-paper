@@ -1,0 +1,232 @@
+---
+title: "Local sensitivity analysis of constitutive sFLT1 secretion"
+author: "Amy Gill"
+date: "2023-03-23"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This file imports data from sensitivity analysis of extracellular sFLT1 (X) and intracellular sFLT1 (I) at 72h performed 9/20/23 using the Matlab script "sFlt-model/04_sensitivity/sens_analysis.m" with run_mode = "local_sens_const".
+
+## Setup
+
+### Common setup
+
+```{r}
+# load packages, define helper functions, define color palettes, load experimental data
+source("../../helper_scripts/setup.R")
+```
+
+### Set output file
+
+```{r}
+# define folder where output will be saved (for example, png images from ggsave)
+outfile_prefix = "../../../saved-figs/04_sensitivity/local_sens/"
+dir.create(outfile_prefix, recursive = TRUE)
+```
+
+
+
+## Load and wrangle simulation output files
+
+### Load files
+
+```{r}
+# import file 
+sens_file <- readMat("../../../saved-data/04_sensitivity/local_sens/local_sens_const.mat")
+
+# inspect available variables
+names(sens_file)
+```
+
+### Parameter names
+
+```{r}
+param_names <- unlist(sens_file$param.names)
+param_names
+```
+
+### Extract outputs to list
+
+```{r}
+sens_file_outlist <- sens_file$out[,,1]
+names(sens_file_outlist) <- str_replace_all(names(sens_file_outlist), "\\.", "_")
+names(sens_file_outlist)
+```
+
+### Convert sensitivies to matrix
+
+```{r}
+# identify columns to show in heatmap (sensitivities except AUMCs)
+ind <- which(str_detect(names(sens_file_outlist), "sens")
+             & !str_detect(names(sens_file_outlist), "AUMC"))
+
+# convert list of sensitivities to matrix
+sens_mat <- as.matrix(as.data.frame(sens_file_outlist[ind]))
+
+# transpose matrix so rows are output variables and columns are parameters varied
+sens_mat <- t(sens_mat)
+
+# add or adjust row/col annotations
+colnames(sens_mat) <- param_names
+rownames(sens_mat) <- str_remove(rownames(sens_mat), "sens_")
+
+# inspect
+sens_mat
+```
+
+## Heatmap v1 (x = output variable, y = parameter adjusted)
+
+### Generate heatmap
+
+```{r}
+local_sens_heatmap_v1 <- Heatmap(t(sens_mat),
+                              heatmap_height = unit(3, "in"),
+                              heatmap_width = unit(4, "in"),
+                              heatmap_legend_param = list(
+                                title = "Relative Sensitivity",
+                                direction = "horizontal",
+                                title_position = "topcenter",
+                                title_gp = gpar(fontsize = 18),
+                                #grid_height = unit(0.5, "in"),
+                                legend_width = unit(2.25, "in")
+                              ),
+                              cluster_rows = FALSE,
+                              column_names_rot = 45,
+                              row_names_side = "left",
+                              row_labels = expression(alpha, beta, gamma, delta, tau),
+                              row_names_gp = gpar(fontsize = 18),
+                              column_names_gp = gpar(fontsize = 14),
+                              column_labels = c(TeX(r'($X_{72h}$)'), 
+                                                TeX(r'($I_{72h}$)'), 
+                                             TeX(r'(${AUC}_{72h}(X)$)'), 
+                                             TeX(r'(${AUC}_{72h}(I)$)'), 
+                                             TeX(r'($I_{SS}$)'),
+                                             TeX(r'($X_{SS}$)'),
+                                             TeX(r'($T_{50}$ to $X_{SS}$)')),
+                              col = pg_color_func,
+                              rect_gp = gpar(col = "black", lwd = 2))
+
+#local_sens_heatmap
+
+draw(local_sens_heatmap_v1, heatmap_legend_side = "top")
+```
+
+### Save heatmap
+
+Good to know - ggsave doesn't work because ComplexHeatmap doesn't use ggplot, but builds on a common ancestor
+
+```{r}
+png(file = paste0(outfile_prefix, "local_sens_heatmap_v1.png"), width=5, height=4, units="in", res=100)
+draw(local_sens_heatmap_v1, heatmap_legend_side = "top")
+dev.off()
+```
+
+## Heatmap v2 - minimum info (72h)
+
+
+```{r}
+sens_mat_small <- sens_mat[c("I_72", "X_72", "T50_X"),]
+
+local_sens_heatmap_v2 <- Heatmap(t(sens_mat_small),
+                              heatmap_height = unit(3, "in"),
+                              heatmap_width = unit(4, "in"),
+                              heatmap_legend_param = list(
+                                title = "Relative Sensitivity",
+                                direction = "horizontal",
+                                title_position = "topcenter",
+                                title_gp = gpar(fontsize = 20, fontfamily = "serif"),
+                                #grid_height = unit(0.5, "in"),
+                                legend_width = unit(2.25, "in")
+                              ),
+                              cluster_rows = FALSE,
+                              column_names_rot = 45,
+                              row_names_side = "left",
+                              row_labels = expression(alpha, beta, gamma, delta, tau),
+                              row_names_gp = gpar(fontsize = 20, fontfamily = "serif"),
+                              column_names_gp = gpar(fontsize = 16, fontfamily = "serif"),
+                              column_labels = c(TeX(r'($I_{72h}$)'), 
+                                                TeX(r'($X_{72h}$)'), 
+                                             TeX(r'($T_{50}(X_{SS})$)')),
+                              col = pg_color_func,
+                              rect_gp = gpar(col = "black", lwd = 2))
+
+#local_sens_heatmap
+
+draw(local_sens_heatmap_v2, heatmap_legend_side = "top")
+```
+
+## Heatmap v3 - annotated cells for v2
+
+
+```{r}
+local_sens_heatmap_v3 <- Heatmap(t(sens_mat_small),
+                              heatmap_height = unit(3, "in"),
+                              heatmap_width = unit(4, "in"),
+                              heatmap_legend_param = list(
+                                title = "Relative Sensitivity",
+                                direction = "horizontal",
+                                title_position = "topcenter",
+                                title_gp = gpar(fontsize = 20, fontfamily = "serif"),
+                                #grid_height = unit(0.5, "in"),
+                                legend_width = unit(2.25, "in")
+                              ),
+                              cluster_rows = FALSE,
+                              cluster_columns = FALSE,
+                              column_names_rot = 45,
+                              row_names_side = "left",
+                              row_labels = expression(alpha, beta, gamma, delta, tau),
+                              row_names_gp = gpar(fontsize = 20, fontfamily = "serif"),
+                              column_names_gp = gpar(fontsize = 16, fontfamily = "serif"),
+                              column_labels = c(TeX(r'($I_{72h}$)'), 
+                                                TeX(r'($X_{72h}$)'), 
+                                             TeX(r'($T_{50}(X_{SS})$)')),
+                              col = pg_color_func,
+                              rect_gp = gpar(col = "black", lwd = 2),
+                              cell_fun = function(i, j, x, y, width, height, fill) {
+                                  grid.text(sprintf("%.2f", sens_mat_small[i, j]), 
+                                          x, y, gp = gpar(fontsize = 16,
+                                                          #fontface = "bold",
+                                                          col = ifelse(
+                                                            abs(sens_mat_small[i,j]) < 0.6,
+                                                            "black", "white")))
+                                })
+
+#local_sens_heatmap
+
+draw(local_sens_heatmap_v3, heatmap_legend_side = "top")
+```
+
+
+
+We performed local univariate sensitivity analysis by starting from the median parameter set, individually increasing each parameter by 10%, and calculating the relative change in several output variables. 
+
+(2 ways of saying the same thing.)
+
+An increase in the production rate constant $\alpha$ causes a linear increase in both intracellular and extracellular sFLT1. (linear? directly proportional? 1:1? )
+
+Increasing the secretion rate constant $\beta$ causes a moderate rise in extracellular sFLT1 but a mild decrease in intracellular sFLT1, while increasing the intracellular degradation rate constant $\gamma$ causes a decline in both intracellular and extracellular levels. The extracellular degradation rate constant $\delta$ has a strong negative effect on extracellular sFLT1 but has no impact on intracellular protein. Notably, $\delta$ is the only parameter which affects the time to half-steady-state ($T_{50}$) for extracellular sFLT1, with higher $\delta$ associated with a faster time to steady state [consistent with known effects of increasing clearance - ref a PK textbook?].
+
+
+
+
+### Save heatmaps
+
+Good to know - ggsave doesn't work because ComplexHeatmap doesn't use ggplot, but builds on a common ancestor
+
+```{r}
+png(file = paste0(outfile_prefix, "local_sens_heatmap_v2_serif.png"), width=5, height=4, units="in", res=100)
+draw(local_sens_heatmap_v2, heatmap_legend_side = "top")
+dev.off()
+```
+
+
+```{r}
+png(file = paste0(outfile_prefix, "local_sens_heatmap_v3_serif.png"), width=5, height=4, units="in", res=100)
+draw(local_sens_heatmap_v3, heatmap_legend_side = "top")
+dev.off()
+```
+

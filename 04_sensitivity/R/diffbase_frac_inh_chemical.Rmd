@@ -1,0 +1,1319 @@
+---
+title: "Sensitivity analysis of constitutive sFLT1 secretion - fraction inhibition by genetic manipulation"
+author: "Amy Gill"
+date: "2023-04-19"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+This file imports data from analysis of different fractional inhibition of each parameter starting from different base cases, performed 2/14/23 using the Matlab script "sFlt-model/04_sensitivity/sens_analysis.m" with run_mode = "sens_vary_base_inh_genchem", genetic_chemical = "genetic".
+
+## Setup
+
+### Common setup
+
+```{r}
+# load packages, define helper functions, define color palettes, load experimental data
+source("../../helper_scripts/setup.R")
+```
+
+### Set output file
+
+```{r}
+# define folder where output will be saved (for example, png images from ggsave)
+outfile_prefix = "../../../saved-figs/04_sensitivity/vary_base_vary_inh_chem/"
+dir.create(outfile_prefix, recursive = TRUE)
+```
+
+## Load and wrangle files
+
+### Import experimental data from CSV
+
+```{r}
+exp_df <- read_csv("../../../saved-data/karina/updated_inhibitor_data_2023-03-29/inh_data_wrangled.csv")
+```
+
+```{r}
+# calculate mean treatment/control ratio for each variable (X,I) for each treatment type
+mean_trt_ctrl_ratios <- exp_df %>%
+  group_by(treatment_type, measured_var) %>%
+  summarize(mean_ratio = mean(trt_ctrl_ratio))
+
+# function to extract a particular mean ratio
+pull_mean_ratio <- function(treatment, var){
+  mean_trt_ctrl_ratios %>%
+    filter(treatment_type == treatment & measured_var == var) %>%
+    pull(mean_ratio)
+}
+
+# extract ratios to be used later
+bref_cm_ratio <- pull_mean_ratio("Brefeldin", "sFlt1_CM")
+bref_lys_ratio <- pull_mean_ratio("Brefeldin", "sFlt1_lysate")
+tat_cm_ratio <- pull_mean_ratio("TATNSF", "sFlt1_CM")
+tat_lys_ratio <- pull_mean_ratio("TATNSF", "sFlt1_lysate")
+chp_cm_ratio <- pull_mean_ratio("Chlorpromazine", "sFlt1_CM")
+chp_lys_ratio <- pull_mean_ratio("Chlorpromazine", "sFlt1_lysate")
+chq_cm_ratio <- pull_mean_ratio("Chloroquine", "sFlt1_CM")
+chq_lys_ratio <- pull_mean_ratio("Chloroquine", "sFlt1_lysate")
+```
+
+### Hornig experimental data
+
+```{r}
+# load experimental data from Hornig
+load("../../../saved-data/hornig.rda")
+
+hornig_basal <- hornig %>%
+  filter(condition == "basal") %>%
+  select(t = nominal_time, X = Sx_ng_ml)
+
+hornig_basal
+```
+
+### Simulation input file
+
+```{r}
+# import file of input parameters
+param_file <- readMat("../../../saved-data/04_sensitivity/vary_base_vary_inh_chem/input.mat")
+
+# inspect available variables
+names(param_file)
+```
+
+### Simulation output file
+
+```{r}
+# import file 
+inh_file <- readMat("../../../saved-data/04_sensitivity/vary_base_vary_inh_chem/sens_diffbase_output.mat")
+
+# inspect available variables
+names(inh_file)
+```
+
+### Species names and parameter names
+
+```{r}
+species_names <- str_replace(names(param_file$sp[,,1]), "\\.", "_")
+param_names <- unlist(inh_file$param.names)
+```
+
+### Extract beta values and full sets of base parameter values
+
+```{r}
+in_betas <- as.vector(param_file$betas)
+
+base_param_mat <- param_file$p.base.all
+
+# rows = parameter names
+rownames(base_param_mat) <- param_names
+
+# columns = parameter sets
+colnames(base_param_mat) <- sapply(1:length(in_betas), function(i){
+  paste0("set_", i)})
+
+base_param_df <- as.data.frame(base_param_mat)
+base_param_df$param = rownames(base_param_mat)
+
+# doesn't auto-adjust ti changing # bases
+base_param_df <- base_param_df %>%
+  pivot_longer(set_1:set_5, names_to = "param_set", values_to = "base_param_value")
+```
+
+
+### Extract outputs to list
+
+```{r}
+inh_file_outlist <- inh_file$out[,,1]
+names(inh_file_outlist) <- str_replace_all(names(inh_file_outlist), "\\.", "_")
+names(inh_file_outlist)
+```
+
+```{r}
+num_params <- length(param_names)
+num_inhs <- length(inh_file$inh.frac)
+num_bases <- length(param_file$betas) # number of base cases to test
+```
+
+### Extract time points
+
+```{r}
+time_vec <- inh_file$sim.time[1,]
+```
+
+### Extract baseline time courses for X, I
+
+
+#### Extract for X
+
+```{r}
+X_base_tcs <- inh_file_outlist$X_base_tcs_all
+
+colnames(X_base_tcs) <- sapply(1:length(in_betas), function(i){
+  paste0("set_", i)})
+
+X_base_df <- as.data.frame(X_base_tcs)
+
+X_base_df$t <- time_vec
+
+# does not adapt to changing number of bases - manually adjust
+X_base_df <- X_base_df %>%
+  pivot_longer(set_1:set_5, names_to = "base_params", values_to = "X_base")
+```
+
+#### Extract for Y
+
+```{r}
+I_base_tcs <- inh_file_outlist$I_base_tcs_all
+
+colnames(I_base_tcs) <- sapply(1:length(in_betas), function(i){
+  paste0("set_", i)})
+
+I_base_df <- as.data.frame(I_base_tcs)
+
+I_base_df$t <- time_vec
+
+I_base_df <- I_base_df %>%
+  pivot_longer(set_1:set_5, names_to = "base_params", values_to = "I_base")
+```
+
+#### Combine baseline time courses
+
+```{r}
+base_tc_df <- X_base_df %>%
+  left_join(I_base_df, by = c("t", "base_params")) %>%
+  right_join(base_param_df, join_by("base_params" == "param_set")) %>%
+  mutate(param_altered = "none",
+         param = paste0("base_", param)) %>%
+  pivot_wider(names_from = "param", values_from = "base_param_value") %>%
+  mutate(base_beta = factor(round(base_beta, 3)))
+
+base_tc_df
+```
+
+
+### Generate or load inhibition time course data frame
+
+#### Define function for Y_df extraction
+
+```{r}
+# format data frames of simulated species values for time courses
+make_sim_Y_df <- function(Y_mat){
+  
+  # flatten matrix to data frame of time course data
+  # (this isn't very "R-style", but it works, so tell Hadley to chill)
+  for (i in 1:dim(Y_mat)[3]) {
+    # print(i)
+    if (i == 1) {    # first run: initialize output data frame
+      # extract matrix for first parameter set to a data frame
+      Y_temp <- as.data.frame(Y_mat[,,1])
+      names(Y_temp) <- species_names
+      Y_temp$run <- 1
+        
+      # initialize full Y data frame to the time course from this first run
+      Y_df <- Y_temp
+      
+    } else {    # later runs: append to data frame
+      Y_temp <- as.data.frame(Y_mat[,,i])
+      names(Y_temp) <- species_names
+      Y_temp$run <- i
+      Y_df <- rbind(Y_df, Y_temp)
+    }
+  }
+  
+  # add matching time points
+  Y_df <- Y_df %>%
+    mutate(t = rep(time_vec, num_params * num_inhs * num_bases))
+  
+  Y_df
+}
+```
+
+
+#### Generate or load Y_df
+
+If Y_df has already been generated, load it. Otherwise, generate and save Y_df.
+
+```{r}
+Y_df_filename <- paste0(outfile_prefix, "Y_df_imported.rda")
+
+if(file.exists(Y_df_filename)){
+  load(Y_df_filename)
+} else {
+  # extract simulated data
+  Y_df <- make_sim_Y_df(inh_file$Y.all)
+  save(Y_df, file = paste0(outfile_prefix, "Y_df_imported.rda"))
+}
+```
+
+### Annotate parameter alteration metadata
+
+Order: For each base parameter set, for each parameter, test each inhibition fraction
+
+```{r}
+# annotate base parameter set
+param_set <- unlist(lapply(1:num_bases, function(x){
+  rep(paste0("set_", x), num_inhs * num_params)
+}))
+
+# annotate parameter altered
+temp <- unlist(lapply(1:num_params, function(x){
+  rep(param_names[x], num_inhs)
+}))
+
+param_altered <- rep(temp, num_bases)
+
+# extract inhibition fraction
+inh_frac <- rep(rep(inh_file$inh.frac[1,], num_params), num_bases)
+
+param_meta_df <- data.frame(run = 1:(num_bases * num_params * num_inhs),
+                            base_param_set = factor(param_set),
+                            param_altered = factor(param_altered,
+                                                  levels = c("alpha", "beta", "gamma",
+                                                             "delta", "tau")), 
+                           inh_frac = inh_frac)
+
+param_meta_df
+```
+
+### Merge time course data and parameter inhibition metadata
+
+```{r}
+Y_df_filename_2 <- paste0(outfile_prefix, "Y_df_meta_added.rda")
+
+if(file.exists(Y_df_filename_2)){
+  load(Y_df_filename_2)
+} else {
+
+  Y_df <- Y_df %>%
+    left_join(param_meta_df, by = "run")
+  
+  save(Y_df, file = paste0(outfile_prefix, Y_df_filename_2))
+}
+```
+
+### Extract 72h values, normalize to baseline
+
+```{r}
+# all species at 72h in all conditions
+Y_72h <- Y_df %>%
+  filter(t == 72)
+
+# baseline X at 72h
+base_72h_df <- base_tc_df %>% 
+  filter(t == 72) %>%
+  select(base_param_set = base_params, X_base_t = X_base, I_base_t = I_base, base_beta)
+
+Y_72h <- Y_72h %>%
+  full_join(base_72h_df, by = "base_param_set") %>%
+  mutate(X_norm = X/X_base_t,
+         I_norm = I/I_base_t)
+```
+
+### Extract 18h values, normalize to baseline
+
+```{r}
+# all species at 18h in all conditions
+Y_18h <- Y_df %>%
+  filter(t == 18)
+
+# baseline X at 18h
+base_18h_df <- base_tc_df %>% 
+  filter(t == 18) %>%
+  select(base_param_set = base_params, X_base_t = X_base, I_base_t = I_base, base_beta)
+
+Y_18h <- Y_18h %>%
+  left_join(base_18h_df, by = "base_param_set") %>%
+  mutate(X_norm = X/X_base_t,
+         I_norm = I/I_base_t)
+
+Y_18h
+```
+
+### Combined 18/72h values
+
+```{r}
+Y_combo <- rbind(Y_18h, Y_72h)
+Y_combo
+```
+
+### WORKSPACE
+
+
+#### Beta altered
+
+```{r}
+Y_18h_beta <- Y_18h %>%
+  filter(param_altered == "beta")
+
+# find beta inhibition value that maps to brefeldin effect on extracellular sFLT1
+bref_beta_X_inh_frac <- Y_18h_beta$inh_frac[which.min(abs(Y_18h_beta$X_norm - bref_cm_ratio))]
+
+# find beta inhibition value that maps to brefeldin effect on intracellular sFLT1
+bref_beta_I_inh_frac <- Y_18h_beta$inh_frac[which.min(abs(Y_18h_beta$I_norm - bref_lys_ratio))]
+
+# find beta inhibition value that maps to chlorpromazine effect on extracellular sFLT1
+chp_beta_X_inh_frac <- Y_18h_beta$inh_frac[which.min(abs(Y_18h_beta$X_norm - chp_cm_ratio))]
+
+# find beta inhibition value that maps to chlorpromazine effect on intracellular sFLT1
+chp_beta_I_inh_frac <- Y_18h_beta$inh_frac[which.min(abs(Y_18h_beta$I_norm - chp_lys_ratio))]
+
+tat_beta_X_inh_frac <- Y_18h_beta$inh_frac[which.min(abs(Y_18h_beta$X_norm - tat_cm_ratio))]
+
+tat_beta_I_inh_frac <- Y_18h_beta$inh_frac[which.min(abs(Y_18h_beta$I_norm - tat_lys_ratio))]
+
+```
+
+#### Gamma altered
+
+```{r}
+Y_18h_gamma <- Y_18h %>%
+  filter(param_altered == "gamma")
+
+# find gamma inhibition value that maps to chloroquine effect on extracellular sFLT1
+chq_gamma_X_inh_frac <- Y_18h_gamma$inh_frac[which.min(
+  abs(Y_18h_gamma$X_norm - chq_cm_ratio))]
+
+# find gamma inhibition value that maps to chloroquine effect on intracellular sFLT1
+chq_gamma_I_inh_frac <- Y_18h_gamma$inh_frac[which.min(
+  abs(Y_18h_gamma$I_norm - chq_lys_ratio))]
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+### Inhibitors of beta - find inh frac
+
+```{r}
+Y_18h_beta <- Y_18h %>%
+  filter(param_altered == "beta") %>%
+  mutate(bref_x_error = abs(X_norm - bref_cm_ratio),
+         bref_i_error = abs(I_norm - bref_lys_ratio),
+         chp_x_error = abs(X_norm - chp_cm_ratio),
+         chp_i_error = abs(I_norm - chp_lys_ratio),
+         tat_x_error = abs(X_norm - tat_cm_ratio),
+         tat_i_error = abs(I_norm - tat_lys_ratio))
+
+Y_18h
+
+temp_list <- lapply(1:num_bases, function(x){
+  temp_df <- Y_18h %>%
+    filter(param_altered == "beta",
+           base_param_set == paste0("set_", x))
+  
+  # find beta inhibition value that maps to brefeldin effect on extracellular sFLT1
+  bref_beta_X_inh_frac <- temp_df$inh_frac[which.min(abs(temp_df$X_norm - bref_cm_ratio))]
+  
+  # find beta inhibition value that maps to brefeldin effect on intracellular sFLT1
+  bref_beta_I_inh_frac <- temp_df$inh_frac[which.min(abs(temp_df$I_norm - bref_lys_ratio))]
+  
+  # find beta inhibition value that maps to chlorpromazine effect on extracellular sFLT1
+  chp_beta_X_inh_frac <- temp_df$inh_frac[which.min(abs(temp_df$X_norm - chp_cm_ratio))]
+  
+  # find beta inhibition value that maps to chlorpromazine effect on intracellular sFLT1
+  chp_beta_I_inh_frac <- temp_df$inh_frac[which.min(abs(temp_df$I_norm - chp_lys_ratio))]
+  
+  # find beta inhibition value that maps to STX6 effect on extracellular sFLT1
+  tat_beta_X_inh_frac <- temp_df$inh_frac[which.min(abs(temp_df$X_norm - tat_cm_ratio))]
+  
+  # find beta inhibition value that maps to STX6 effect on intracellular sFLT1
+  tat_beta_I_inh_frac <- temp_df$inh_frac[which.min(abs(temp_df$I_norm - tat_lys_ratio))]
+  
+  data.frame(inhibitor = c("Brefeldin", "Brefeldin", "Chlorpromazine", "Chlorpromazine", 
+                           "TATNSF700", "TATNSF700"),
+             base_param_set = paste0("set_", x),
+             output = rep(c("X_inh_frac", "I_inh_frac"),3),
+             inh_frac = c(bref_beta_X_inh_frac, bref_beta_I_inh_frac, 
+                          chp_beta_X_inh_frac, chp_beta_I_inh_frac,
+                          tat_beta_X_inh_frac, tat_beta_I_inh_frac)) %>%
+    pivot_wider(names_from = "output", values_from = "inh_frac")
+  
+})
+
+# need to write for an arbitrary number of divides - for now, manually update
+inh_frac_df_beta <- rbind(temp_list[[1]], temp_list[[2]], temp_list[[3]], temp_list[[4]], temp_list[[5]])
+```
+
+### Inhibitors of gamma - find inh frac
+
+```{r}
+Y_18h_gamma <- Y_18h %>%
+  filter(param_altered == "gamma") %>%
+  mutate(chq_x_error = abs(X_norm - chq_cm_ratio),
+         chq_i_error = abs(I_norm - chq_lys_ratio))
+
+temp_list <- lapply(1:num_bases, function(x){
+  temp_df <- Y_18h %>%
+    filter(param_altered == "gamma",
+           base_param_set == paste0("set_", x))
+  
+  # find beta inhibition value that maps to chloroquine effect on extracellular sFLT1
+  chq_beta_X_inh_frac <- temp_df$inh_frac[which.min(abs(temp_df$X_norm - chq_cm_ratio))]
+  
+  # find beta inhibition value that maps to chloroquine effect on intracellular sFLT1
+  chq_beta_I_inh_frac <- temp_df$inh_frac[which.min(abs(temp_df$I_norm - chq_lys_ratio))]
+  
+  
+  
+  data.frame(inhibitor = c("Chloroquine", "Chloroquine"),
+             base_param_set = paste0("set_", x),
+             output = c("X_inh_frac", "I_inh_frac"),
+             inh_frac = c(chq_beta_X_inh_frac, chq_beta_I_inh_frac)) %>%
+    pivot_wider(names_from = "output", values_from = "inh_frac")
+  
+})
+
+# need to write for an arbitrary number of divides - for now, manually update
+inh_frac_df_gamma <- rbind(temp_list[[1]], temp_list[[2]], temp_list[[3]], temp_list[[4]], temp_list[[5]])
+
+inh_frac_df_gamma
+```
+
+```{r}
+inh_frac_df <- rbind(inh_frac_df_beta, inh_frac_df_gamma)
+inh_frac_df
+```
+
+
+
+
+
+## Base plots
+
+### Base X
+
+```{r}
+base_X_tcs <- base_tc_df %>%
+  ggplot(aes(t, X_base, col = base_beta)) +
+  geom_line(linewidth = 2, alpha = 0.7) +
+  xlab("Time (h)") +
+  ylab("X (ng/mL)") +
+  scale_x_continuous(breaks = seq(0, 72, by=24)) +
+  theme_paper +
+  scale_color_manual(values = cb_pal) +
+  labs(color = TeX(r'(Base $\beta$)')) +
+  theme(legend.position = "right")
+
+# save plot
+ggsave(out_png("base_X_tcs"),
+       base_X_tcs, width = 6, height = 4)
+
+base_X_tcs
+```
+
+
+### Base I
+
+```{r}
+base_I_tcs <- base_tc_df %>%
+  ggplot(aes(t, I_base, col = base_beta)) +
+  geom_line(linewidth = 2) +
+  xlab("Time (h)") +
+  ylab("I (#/cell)") +
+  scale_x_continuous(breaks = seq(0, 72, by=24)) +
+  scale_y_continuous(limits = c(0, 1.25e6), breaks = seq(0, 1.25e6, 2.5e5)) +
+  theme_paper +
+  scale_color_manual(values = cb_pal) +
+  labs(color = TeX(r'(Base $\beta$)')) +
+  theme(legend.position = "right")
+
+# save plot
+ggsave(out_png("base_I_tcs"),
+       base_I_tcs, width = 6, height = 4)
+
+base_I_tcs
+```
+
+### Combined X, I
+
+```{r}
+X_I_base_tcs <- (base_X_tcs + theme(legend.position = "none")) /
+  (base_I_tcs + theme(legend.position = "bottom"))
+
+# save plot
+ggsave(out_png("X_I_base_tcs"),
+       X_I_base_tcs, width = 7, height = 8)
+
+X_I_base_tcs
+```
+
+
+
+## #### WORKSPACE ####
+
+From here, plot 72h chemical inhibition and annotate with inhibitor results
+
+
+
+
+
+
+
+
+## OLD
+
+
+## 72h plots: fraction of initial amount 
+
+### abgd, facet grid, X and I
+
+
+```{r}
+inhfrac_abgd_xi_grid_72h <- Y_72h %>%
+  filter(param_altered != "tau") %>%
+  pivot_longer(cols = c(X_norm, I_norm), names_to = "species", values_to = "amount") %>%
+  mutate(species = ifelse(species == "X_norm", "X", "I"),
+         species = factor(species, levels = c("X", "I"))) %>%
+  ggplot(aes(inh_frac, amount, color = base_beta)) +
+      geom_hline(yintercept = 1, lty = 2, linewidth = 0.5) +
+  geom_line(linewidth = 1, alpha = 0.9) +
+  facet_grid(species ~ param_altered, scales = "free", labeller = label_parsed) +
+  xlab("Fraction inhibition") +
+  ylab("Normalized sFLT1") +
+  theme_paper +
+  scale_x_continuous(expand = c(0,0), breaks = seq(0, 1, by = 0.25)) +
+  scale_y_continuous(limits = c(0, 4)) +
+  scale_color_manual(values = cb_pal) +
+  theme(panel.spacing = unit(1.5, "lines")) +
+  labs(color = TeX(r'(Base $\beta$)'))
+
+# save plot
+ggsave(out_png("inhfrac_abgd_xi_grid_72h"),
+       inhfrac_abgd_xi_grid_72h, width = 12, height = 6)
+
+inhfrac_abgd_xi_grid_72h
+```
+
+### Individual plots
+
+#### alpha, X
+
+```{r}
+X_72h_v_inh_frac_alpha <- Y_72h %>%
+  filter(param_altered == "alpha") %>%
+  ggplot(aes(inh_frac, X_norm, col = base_beta)) +
+  geom_line(linewidth = 2) +
+  theme_paper +
+  xlab(TeX(r'(Fraction inhibition of $\alpha$)')) +
+  ylab(TeX(r'($X_{72h}$ (Normalized))'))  +
+  scale_color_manual(values = cb_pal) +
+  scale_y_continuous(limits = c(0,4), expand = c(0.01,0.01)) +
+  scale_x_continuous(expand = c(0.01,0.01)) +
+  labs(color = TeX(r'(Base $\beta$)')) +
+  theme(legend.position = "right")
+
+# save plot
+ggsave(out_png("X_72h_v_inh_frac_alpha"),
+       X_72h_v_inh_frac_alpha, width = 6, height = 4)
+
+X_72h_v_inh_frac_alpha
+```
+
+
+#### alpha, I
+
+```{r}
+I_72h_v_inh_frac_alpha <- Y_72h %>%
+  filter(param_altered == "alpha") %>%
+  ggplot(aes(inh_frac, I_norm, col = base_beta)) +
+  geom_line(linewidth = 2) +
+  theme_paper +
+  xlab(TeX(r'(Fraction inhibition of $\alpha$)')) +
+  ylab(TeX(r'($I_{72h}$ (Normalized))'))  +
+  scale_color_manual(values = cb_pal) +
+  scale_y_continuous(limits = c(0,2), expand = c(0.01,0.01)) +
+  scale_x_continuous(expand = c(0.01,0.01)) +
+  labs(color = TeX(r'(Base $\beta$)')) +
+  theme(legend.position = "right")
+
+# save plot
+ggsave(out_png("I_72h_v_inh_frac_alpha"),
+       I_72h_v_inh_frac_alpha, width = 6, height = 4)
+
+I_72h_v_inh_frac_alpha
+```
+
+
+#### beta, X
+
+```{r}
+X_72h_v_inh_frac_beta <- Y_72h %>%
+  filter(param_altered == "beta") %>%
+  ggplot(aes(inh_frac, X_norm, col = base_beta)) +
+  geom_line(linewidth = 2) +
+  theme_paper +
+  xlab(TeX(r'(Fraction inhibition of $\beta$)')) +
+  ylab(TeX(r'($X_{72h}$ (Normalized))'))  +
+  scale_color_manual(values = cb_pal) +
+  scale_y_continuous(limits = c(0,4), expand = c(0.01,0.01)) +
+  scale_x_continuous(expand = c(0.01,0.01)) +
+  labs(color = TeX(r'(Base $\beta$)')) +
+  theme(legend.position = "right")
+
+# save plot
+ggsave(out_png("X_72h_v_inh_frac_beta"),
+       X_72h_v_inh_frac_beta, width = 6, height = 4)
+
+X_72h_v_inh_frac_beta
+```
+
+
+#### beta, I
+
+```{r}
+I_72h_v_inh_frac_beta <- Y_72h %>%
+  filter(param_altered == "beta") %>%
+  ggplot(aes(inh_frac, I_norm, col = base_beta)) +
+  geom_line(linewidth = 2) +
+  theme_paper +
+  xlab(TeX(r'(Fraction inhibition of $\beta$)')) +
+  ylab(TeX(r'($I_{72h}$ (Normalized))'))  +
+  scale_color_manual(values = cb_pal) +
+  scale_y_continuous(limits = c(0, 2), expand = c(0.01,0.01)) +
+  scale_x_continuous(expand = c(0.01,0.01)) +
+  labs(color = TeX(r'(Base $\beta$)')) +
+  theme(legend.position = "right")
+
+# save plot
+ggsave(out_png("I_72h_v_inh_frac_beta"),
+       I_72h_v_inh_frac_beta, width = 6, height = 4)
+
+I_72h_v_inh_frac_beta
+```
+
+
+#### gamma, X
+
+```{r}
+X_72h_v_inh_frac_gamma <- Y_72h %>%
+  filter(param_altered == "gamma") %>%
+  ggplot(aes(inh_frac, X_norm, col = base_beta)) +
+  geom_line(linewidth = 2) +
+  theme_paper +
+  xlab(TeX(r'(Fraction inhibition of $\gamma$)')) +
+  ylab(TeX(r'($X_{72h}$ (Normalized))'))  +
+  scale_color_manual(values = cb_pal) +
+  scale_y_continuous(limits = c(0, 4), expand = c(0.01,0.01)) +
+  scale_x_continuous(expand = c(0.01,0.01)) +
+  labs(color = TeX(r'(Base $\beta$)')) +
+  theme(legend.position = "right")
+
+# save plot
+ggsave(out_png("X_72h_v_inh_frac_gamma"),
+       X_72h_v_inh_frac_gamma, width = 6, height = 4)
+
+X_72h_v_inh_frac_gamma
+```
+
+
+#### gamma, I
+
+```{r}
+I_72h_v_inh_frac_gamma <- Y_72h %>%
+  filter(param_altered == "gamma") %>%
+  ggplot(aes(inh_frac, I_norm, col = base_beta)) +
+  geom_line(linewidth = 2) +
+  theme_paper +
+  xlab(TeX(r'(Fraction inhibition of $\gamma$)')) +
+  ylab(TeX(r'($I_{72h}$ (Normalized))'))  +
+  scale_color_manual(values = cb_pal) +
+  scale_y_continuous(limits = c(0, 2), expand = c(0.01,0.01)) +
+  scale_x_continuous(expand = c(0.01,0.01)) +
+  labs(color = TeX(r'(Base $\beta$)')) +
+  theme(legend.position = "right")
+
+# save plot
+ggsave(out_png("I_72h_v_inh_frac_gamma"),
+       I_72h_v_inh_frac_gamma, width = 6, height = 4)
+
+I_72h_v_inh_frac_gamma
+```
+
+
+#### delta, X
+
+```{r}
+X_72h_v_inh_frac_delta <- Y_72h %>%
+  filter(param_altered == "delta") %>%
+  ggplot(aes(inh_frac, X_norm, col = base_beta)) +
+  geom_line(linewidth = 2) +
+  theme_paper +
+  xlab(TeX(r'(Fraction inhibition of $\delta$)')) +
+  ylab(TeX(r'($X_{72h}$ (Normalized))'))  +
+  scale_color_manual(values = cb_pal) +
+  scale_y_continuous(limits = c(0, 4), expand = c(0.01,0.01)) +
+  scale_x_continuous(expand = c(0.01,0.01)) +
+  labs(color = TeX(r'(Base $\beta$)')) +
+  theme(legend.position = "right")
+
+# save plot
+ggsave(out_png("X_72h_v_inh_frac_delta"),
+       X_72h_v_inh_frac_delta, width = 6, height = 4)
+
+X_72h_v_inh_frac_delta
+```
+
+
+#### delta, I
+
+
+```{r}
+I_72h_v_inh_frac_delta <- Y_72h %>%
+  filter(param_altered == "delta") %>%
+  ggplot(aes(inh_frac, I_norm, col = base_beta)) +
+  geom_line(linewidth = 2) +
+  theme_paper +
+  xlab(TeX(r'(Fraction inhibition of $\delta$)')) +
+  ylab(TeX(r'($I_{72h}$ (Normalized))'))  +
+  scale_color_manual(values = cb_pal) +
+  scale_y_continuous(limits = c(0, 2), expand = c(0.01,0.01)) +
+  scale_x_continuous(expand = c(0.01,0.01)) +
+  labs(color = TeX(r'(Base $\beta$)')) +
+  theme(legend.position = "right")
+
+# save plot
+ggsave(out_png("I_72h_v_inh_frac_delta"),
+       I_72h_v_inh_frac_delta, width = 6, height = 4)
+
+I_72h_v_inh_frac_delta
+```
+
+Made an attempt to combine in patchwork, but the guides were not behaving nicely.
+
+## 18h plots: fraction of initial amount 
+
+### abgd, facet grid, X and I
+
+```{r}
+inhfrac_abgd_xi_grid_18h <- Y_18h %>%
+  filter(param_altered != "tau") %>%
+  #mutate(param_color = case_when(param_altered == "alpha" ~ param_pal_list$alpha,
+  #                               param_altered == "beta" ~ param_pal_list$beta,
+  #                               param_altered == "gamma" ~ param_pal_list$gamma,
+  #                               param_altered == "delta" ~ param_pal_list$delta)) %>%
+  pivot_longer(cols = c(X_norm, I_norm), names_to = "species", values_to = "amount") %>%
+  mutate(species = ifelse(species == "X_norm", "X", "I"),
+         species = factor(species, levels = c("X", "I"))) %>%
+  ggplot(aes(inh_frac, amount, color = base_beta)) +
+      geom_hline(yintercept = 1, lty = 2, linewidth = 0.5) +
+  geom_line(linewidth = 1, alpha = 0.9) +
+  facet_grid(species ~ param_altered, scales = "free", labeller = label_parsed) +
+  xlab("Fraction inhibition") +
+  ylab("Normalized sFLT1") +
+  theme_paper +
+  scale_x_continuous(expand = c(0,0), breaks = seq(0, 1, by = 0.25)) +
+  scale_y_continuous(limits = c(0,4)) +
+  scale_color_manual(values = cb_pal) +
+  theme(panel.spacing = unit(1.5, "lines")) +
+  labs(color = TeX(r'(Base $\beta$)'))
+
+# save plot
+ggsave(out_png("inhfrac_abgd_xi_grid_18h"),
+       inhfrac_abgd_xi_grid_18h, width = 12, height = 6)
+
+inhfrac_abgd_xi_grid_18h
+```
+
+### Beta only - annotate inhibitors
+
+#### Extracellular
+
+```{r}
+X_18h_v_inh_frac_beta <- Y_18h %>%
+  filter(param_altered == "beta") %>%
+  ggplot(aes(inh_frac, X_norm, col = base_beta)) +
+  geom_line(linewidth = 2) +
+  theme_paper +
+  xlab(TeX(r'(Fraction inhibition of $\beta$)')) +
+  ylab(TeX(r'($X_{18h}$ (Normalized))'))  +
+  scale_color_manual(values = cb_pal) +
+  scale_y_continuous(expand = c(0.01,0.01)) +
+  scale_x_continuous(expand = c(0.01,0.01)) +
+  labs(color = TeX(r'(Base $\beta$)')) +
+  theme(legend.position = "right")
+
+# save plot
+ggsave(out_png("X_18h_v_inh_frac_beta_nonotes"),
+       X_18h_v_inh_frac_beta, width = 6, height = 4)
+
+X_18h_v_inh_frac_beta
+```
+
+##### Annotate brefeldin
+
+```{r}
+# extract data frame of RAB27a inhibition fraction estimates for each base parameter set
+bref_inh_frac_df <- inh_frac_df %>%
+  filter(inhibitor == "Brefeldin")
+
+X_18h_v_inh_frac_beta_bref <- X_18h_v_inh_frac_beta +
+  geom_hline(yintercept = bref_cm_ratio, lty = 4) +
+  annotate("text", x = 0.25, y = bref_cm_ratio + .05, label = "Brefeldin", size = 6) 
+
+for (i in 1:num_bases) {
+  
+  if(bref_inh_frac_df$X_inh_frac[i] < .99){
+    X_18h_v_inh_frac_beta_bref <- X_18h_v_inh_frac_beta_bref +
+      annotate("segment", x = bref_inh_frac_df$X_inh_frac[i], xend = bref_inh_frac_df$X_inh_frac[i], 
+               y = -Inf, yend = bref_cm_ratio, , color = cb_pal[i]) +  
+      annotate("point", x = bref_inh_frac_df$X_inh_frac[i], y = bref_cm_ratio, 
+               size = 5, pch = 21, fill = cb_pal[i], color = "black")
+  }
+  
+}
+
+# save plot
+ggsave(out_png("X_18h_v_inh_frac_beta_bref"),
+       X_18h_v_inh_frac_beta_bref, width = 6, height = 4)
+
+X_18h_v_inh_frac_beta_bref
+```
+
+##### Annotate chlorpromazine
+
+```{r}
+# extract data frame of RAB27a inhibition fraction estimates for each base parameter set
+chp_inh_frac_df <- inh_frac_df %>%
+  filter(inhibitor == "Chlorpromazine")
+
+X_18h_v_inh_frac_beta_chp <- X_18h_v_inh_frac_beta +
+  geom_hline(yintercept = chp_cm_ratio, lty = 2) +
+  annotate("text", x = 0.2, y = chp_cm_ratio + .05, label = "Chlorpromazine", size = 6) 
+
+for (i in 1:num_bases) {
+  
+  if(chp_inh_frac_df$X_inh_frac[i] < .99){
+    X_18h_v_inh_frac_beta_chp <- X_18h_v_inh_frac_beta_chp +
+    annotate("segment", x = chp_inh_frac_df$X_inh_frac[i], xend = chp_inh_frac_df$X_inh_frac[i], 
+           y = -Inf, yend = chp_cm_ratio, , color = cb_pal[i]) +  
+    annotate("point", x = chp_inh_frac_df$X_inh_frac[i], y = chp_cm_ratio, 
+             size = 5, pch = 21, fill = cb_pal[i], color = "black")
+  }
+  
+}
+
+# save plot
+ggsave(out_png("X_18h_v_inh_frac_beta_chp"),
+       X_18h_v_inh_frac_beta_chp, width = 6, height = 4)
+
+X_18h_v_inh_frac_beta_chp
+```
+
+##### Annotate TATNSF700
+
+```{r}
+# extract data frame of RAB27a inhibition fraction estimates for each base parameter set
+tat_inh_frac_df <- inh_frac_df %>%
+  filter(inhibitor == "TATNSF700")
+
+X_18h_v_inh_frac_beta_tat <- X_18h_v_inh_frac_beta +
+  geom_hline(yintercept = tat_cm_ratio, lty = 3) +
+  annotate("text", x = 0.2, y = tat_cm_ratio + .05, label = "TATNSF700", size = 6) 
+
+for (i in 1:num_bases) {
+  if(tat_inh_frac_df$X_inh_frac[i] < .99){
+  
+  X_18h_v_inh_frac_beta_tat <- X_18h_v_inh_frac_beta_tat +
+    annotate("segment", x = tat_inh_frac_df$X_inh_frac[i], xend = tat_inh_frac_df$X_inh_frac[i], 
+           y = -Inf, yend = tat_cm_ratio, , color = cb_pal[i]) +  
+    annotate("point", x = tat_inh_frac_df$X_inh_frac[i], y = tat_cm_ratio, 
+             size = 5, pch = 21, fill = cb_pal[i], color = "black")
+  }
+}
+
+# save plot
+ggsave(out_png("X_18h_v_inh_frac_beta_tat"),
+       X_18h_v_inh_frac_beta_tat, width = 6, height = 4)
+
+X_18h_v_inh_frac_beta_tat
+```
+
+##### Annotate all siRNAs - expt ratios only
+
+```{r}
+X_18h_v_inh_frac_beta_annot_3 <- X_18h_v_inh_frac_beta +
+  geom_hline(yintercept = bref_cm_ratio, lty = 4) +
+  geom_hline(yintercept = chp_cm_ratio, lty = 2) +
+  geom_hline(yintercept = tat_cm_ratio, lty = 3) +
+  annotate("text", x = 0.5, y = bref_cm_ratio - .05, label = "Brefeldin", size = 6) +
+  annotate("text", x = 0.3, y = chp_cm_ratio - .05, label = "Chlorpromazine", size = 6) +
+  annotate("text", x = 0.17, y = tat_cm_ratio + .05, label = "TATNSF700", size = 6) +
+  scale_y_continuous(expand = c(.01, .01))
+
+# save plot
+ggsave(out_png("X_18h_v_inh_frac_beta_annot_3"),
+       X_18h_v_inh_frac_beta_annot_3, width = 6, height = 4)
+
+X_18h_v_inh_frac_beta_annot_3
+```
+
+#### Intracellular
+
+```{r}
+I_18h_v_inh_frac_beta <- Y_18h %>%
+  filter(param_altered == "beta") %>%
+  ggplot(aes(inh_frac, I_norm, col = base_beta)) +
+  geom_line(linewidth = 2) +
+  theme_paper +
+  xlab(TeX(r'(Fraction inhibition of $\beta$)')) +
+  ylab(TeX(r'($I_{18h}$ (Normalized))'))  +
+  scale_color_manual(values = cb_pal) +
+  scale_y_continuous(limits = c(0,3.5), expand = c(0.01,0.01)) +
+  scale_x_continuous(expand = c(0.01,0.01)) +
+  labs(color = TeX(r'(Base $\beta$)')) +
+  theme(legend.position = "right")
+
+# save plot
+ggsave(out_png("I_18h_v_inh_frac_beta_nonotes"),
+       I_18h_v_inh_frac_beta, width = 6, height = 4)
+
+I_18h_v_inh_frac_beta
+```
+
+##### Annotate brefeldin
+
+```{r}
+I_18h_v_inh_frac_beta_bref <- I_18h_v_inh_frac_beta +
+  geom_hline(yintercept = bref_lys_ratio, lty = 4) +
+  annotate("text", x = 0.25, y = bref_lys_ratio + .15, label = "Brefeldin", size = 6)
+
+for (i in 1:num_bases) {
+  
+  if(bref_inh_frac_df$I_inh_frac[i] < .99){
+    I_18h_v_inh_frac_beta_bref <- I_18h_v_inh_frac_beta_bref +
+      annotate("segment", x = bref_inh_frac_df$I_inh_frac[i], xend = bref_inh_frac_df$I_inh_frac[i], 
+               y = -Inf, yend = bref_lys_ratio, , color = cb_pal[i]) +  
+      annotate("point", x = bref_inh_frac_df$I_inh_frac[i], y = bref_lys_ratio, 
+               size = 5, pch = 21, fill = cb_pal[i], color = "black")
+  }
+  
+}
+
+# save plot
+ggsave(out_png("I_18h_v_inh_frac_beta_bref"),
+       I_18h_v_inh_frac_beta_bref, width = 6, height = 4)
+
+I_18h_v_inh_frac_beta_bref
+```
+
+##### Annotate chlorpromazine
+
+```{r}
+I_18h_v_inh_frac_beta_chp <- I_18h_v_inh_frac_beta +
+  geom_hline(yintercept = chp_lys_ratio, lty = 2) +
+  annotate("text", x = 0.3, y = chp_lys_ratio + .15, label = "Chlorpromazine", size = 6)
+
+for (i in 1:num_bases) {
+  
+  if(chp_inh_frac_df$I_inh_frac[i] < 0.99){
+    
+    I_18h_v_inh_frac_beta_chp <- I_18h_v_inh_frac_beta_chp +
+    annotate("segment", x = chp_inh_frac_df$I_inh_frac[i], xend = chp_inh_frac_df$I_inh_frac[i], 
+           y = -Inf, yend = chp_lys_ratio, , color = cb_pal[i]) +  
+    annotate("point", x = chp_inh_frac_df$I_inh_frac[i], y = chp_lys_ratio, 
+             size = 5, pch = 21, fill = cb_pal[i], color = "black")
+  }
+}
+
+# save plot
+ggsave(out_png("I_18h_v_inh_frac_beta_chp"),
+       I_18h_v_inh_frac_beta_chp, width = 6, height = 4)
+
+I_18h_v_inh_frac_beta_chp
+```
+
+##### Annotate TATNSF700
+
+```{r}
+I_18h_v_inh_frac_beta_tat <- I_18h_v_inh_frac_beta +
+  geom_hline(yintercept = tat_lys_ratio, lty = 3) +
+  annotate("text", x = 0.15, y = tat_lys_ratio + .15, label = "TATNSF700", size = 6) 
+
+for (i in 1:num_bases) {
+  
+  if(tat_inh_frac_df$I_inh_frac[i] < 0.99){
+    
+    I_18h_v_inh_frac_beta_tat <- I_18h_v_inh_frac_beta_tat +
+    annotate("segment", x = tat_inh_frac_df$I_inh_frac[i], xend = tat_inh_frac_df$I_inh_frac[i], 
+           y = -Inf, yend = tat_lys_ratio, , color = cb_pal[i]) +  
+    annotate("point", x = tat_inh_frac_df$I_inh_frac[i], y = tat_lys_ratio, 
+             size = 5, pch = 21, fill = cb_pal[i], color = "black")
+  }
+}
+
+# save plot
+ggsave(out_png("I_18h_v_inh_frac_beta_tat"),
+       I_18h_v_inh_frac_beta_tat, width = 6, height = 4)
+
+I_18h_v_inh_frac_beta_tat
+```
+
+##### Annotate all beta inhibitors - expt ratios only
+
+```{r}
+I_18h_v_inh_frac_beta_annot_3 <- I_18h_v_inh_frac_beta +
+  geom_hline(yintercept = chp_lys_ratio, lty = 2) +
+  geom_hline(yintercept = tat_lys_ratio, lty = 3) +
+  geom_hline(yintercept = bref_lys_ratio, lty = 4) +
+  annotate("text", x = 0.4, y = chp_lys_ratio + .15, label = "Chlorpromazine", size = 6) +
+  annotate("text", x = 0.27, y = bref_lys_ratio + .15, label = "Brefeldin", size = 6) +
+  annotate("text", x = 0.15, y = tat_lys_ratio + .15, label = "TATNSF700", size = 6) +
+  scale_y_continuous(limits = c(-0.2, 3.5), expand = c(0,0)) 
+
+
+# save plot
+ggsave(out_png("I_18h_v_inh_frac_beta_annot_3"),
+       I_18h_v_inh_frac_beta_annot_3, width = 6, height = 4)
+
+I_18h_v_inh_frac_beta_annot_3
+```
+
+#### X, I combined
+
+##### All beta inhibitors
+
+
+```{r}
+X_I_18h_beta_inh_annot <- (X_18h_v_inh_frac_beta_annot_3 + theme(legend.position = "none")) /
+  (I_18h_v_inh_frac_beta_annot_3 + theme(legend.position = "bottom"))
+
+# save plot
+ggsave(out_png("X_I_18h_beta_inh_annot"),
+       X_I_18h_beta_inh_annot, width = 6, height = 8)
+
+X_I_18h_beta_inh_annot
+```
+
+##### Brefeldin
+
+```{r}
+bref_18h_beta_inh_annot <- (X_18h_v_inh_frac_beta_bref + 
+                              theme(legend.position = "none") + 
+                              ggtitle("Brefeldin")) / 
+  (I_18h_v_inh_frac_beta_bref + theme(legend.position = "bottom"))
+
+# save plot
+ggsave(out_png("bref_18h_beta_inh_annot"),
+       bref_18h_beta_inh_annot, width = 6, height = 8)
+
+bref_18h_beta_inh_annot
+```
+
+##### Chlorpromazine
+
+```{r}
+chp_18h_beta_inh_annot <- (X_18h_v_inh_frac_beta_chp + 
+                             ggtitle("Chlorpromazine") +
+                             theme(legend.position = "none")) /
+  (I_18h_v_inh_frac_beta_chp + theme(legend.position = "bottom"))
+
+# save plot
+ggsave(out_png("chp_18h_beta_inh_annot"),
+       chp_18h_beta_inh_annot, width = 6, height = 8)
+
+chp_18h_beta_inh_annot
+```
+
+
+##### TATNSF700
+
+```{r}
+tat_18h_beta_inh_annot <- (X_18h_v_inh_frac_beta_tat + 
+                             ggtitle("TATNSF700") +
+                             theme(legend.position = "none")) /
+  (I_18h_v_inh_frac_beta_tat + theme(legend.position = "bottom"))
+
+# save plot
+ggsave(out_png("tat_18h_beta_inh_annot"),
+       tat_18h_beta_inh_annot, width = 6, height = 8)
+
+tat_18h_beta_inh_annot
+```
+
+### Gamma only - annotate inhibitors
+
+#### Extracellular
+
+```{r}
+X_18h_v_inh_frac_gamma <- Y_18h %>%
+  filter(param_altered == "gamma") %>%
+  ggplot(aes(inh_frac, X_norm, col = base_beta)) +
+  geom_line(linewidth = 2) +
+  theme_paper +
+  xlab(TeX(r'(Fraction inhibition of $\gamma$)')) +
+  ylab(TeX(r'($X_{18h}$ (Normalized))'))  +
+  scale_color_manual(values = cb_pal) +
+  scale_y_continuous(expand = c(0.01,0.01)) +
+  scale_x_continuous(expand = c(0.01,0.01)) +
+  labs(color = TeX(r'(Base $\beta$)')) +
+  theme(legend.position = "right")
+
+# save plot
+ggsave(out_png("X_18h_v_inh_frac_gamma_nonotes"),
+       X_18h_v_inh_frac_gamma, width = 6, height = 4)
+
+X_18h_v_inh_frac_gamma
+```
+
+##### Annotate chloroquine
+
+```{r}
+# extract data frame of RAB27a inhibition fraction estimates for each base parameter set
+chq_inh_frac_df <- inh_frac_df %>%
+  filter(inhibitor == "Chloroquine")
+
+X_18h_v_inh_frac_gamma_chq <- X_18h_v_inh_frac_gamma +
+  geom_hline(yintercept = chq_cm_ratio, lty = 4) +
+  annotate("text", x = 0.25, y = chq_cm_ratio + .05, label = "Chloroquine", size = 6) 
+
+for (i in 1:num_bases) {
+  
+  if(chq_inh_frac_df$X_inh_frac[i] < .99 & chq_inh_frac_df$X_inh_frac[i] > .01){
+    X_18h_v_inh_frac_gamma_chq <- X_18h_v_inh_frac_gamma_chq +
+      annotate("segment", x = chq_inh_frac_df$X_inh_frac[i], xend = chq_inh_frac_df$X_inh_frac[i], 
+               y = -Inf, yend = chq_cm_ratio, , color = cb_pal[i]) +  
+      annotate("point", x = chq_inh_frac_df$X_inh_frac[i], y = chq_cm_ratio, 
+               size = 5, pch = 21, fill = cb_pal[i], color = "black")
+  }
+  
+}
+
+# save plot
+ggsave(out_png("X_18h_v_inh_frac_gamma_chq"),
+       X_18h_v_inh_frac_gamma_chq, width = 6, height = 4)
+
+X_18h_v_inh_frac_gamma_chq
+```
+
+
+#### Intracellular
+
+```{r}
+I_18h_v_inh_frac_gamma <- Y_18h %>%
+  filter(param_altered == "gamma") %>%
+  ggplot(aes(inh_frac, I_norm, col = base_beta)) +
+  geom_line(linewidth = 2) +
+  theme_paper +
+  xlab(TeX(r'(Fraction inhibition of $\gamma$)')) +
+  ylab(TeX(r'($I_{18h}$ (Normalized))'))  +
+  scale_color_manual(values = cb_pal) +
+  scale_y_continuous(limits = c(0,3.5), expand = c(0.01,0.01)) +
+  scale_x_continuous(expand = c(0.01,0.01)) +
+  labs(color = TeX(r'(Base $\beta$)')) +
+  theme(legend.position = "right")
+
+# save plot
+ggsave(out_png("I_18h_v_inh_frac_gamma_nonotes"),
+       I_18h_v_inh_frac_gamma, width = 6, height = 4)
+
+I_18h_v_inh_frac_gamma
+```
+
+##### Annotate chloroquine
+
+```{r}
+I_18h_v_inh_frac_gamma_chq <- I_18h_v_inh_frac_gamma +
+  geom_hline(yintercept = chq_lys_ratio, lty = 4) +
+  annotate("text", x = 0.25, y = chq_lys_ratio + .15, label = "Chloroquine", size = 6)
+
+for (i in 1:num_bases) {
+  
+  if(chq_inh_frac_df$I_inh_frac[i] < .99 & chq_inh_frac_df$I_inh_frac[i] > .01){
+    I_18h_v_inh_frac_gamma_chq <- I_18h_v_inh_frac_gamma_chq +
+      annotate("segment", x = chq_inh_frac_df$I_inh_frac[i], xend = chq_inh_frac_df$I_inh_frac[i], 
+               y = -Inf, yend = chq_lys_ratio, , color = cb_pal[i]) +  
+      annotate("point", x = chq_inh_frac_df$I_inh_frac[i], y = chq_lys_ratio, 
+               size = 5, pch = 21, fill = cb_pal[i], color = "black")
+  }
+  
+}
+
+# save plot
+ggsave(out_png("I_18h_v_inh_frac_gamma_chq"),
+       I_18h_v_inh_frac_gamma_chq, width = 6, height = 4)
+
+I_18h_v_inh_frac_gamma_chq
+```
+
+#### X, I combined
+
+```{r}
+chq_18h_gamma_inh_annot <- (X_18h_v_inh_frac_gamma_chq + 
+                              ggtitle("Chloroquine") +
+                              theme(legend.position = "none")) /
+  (I_18h_v_inh_frac_gamma_chq + theme(legend.position = "bottom"))
+
+# save plot
+ggsave(out_png("chq_18h_gamma_inh_annot"),
+       chq_18h_gamma_inh_annot, width = 6, height = 8)
+
+chq_18h_gamma_inh_annot
+```
+
+### Combined chem inh figures
+
+#### Fold change vs inh frac, 18h and 72h
+
+```{r}
+p1 <- inhfrac_abgd_xi_grid_18h +
+  ggtitle("18h") +
+  theme(legend.position = "none")
+
+p2 <- inhfrac_abgd_xi_grid_72h +
+  ggtitle("72h") +
+  theme(legend.text = element_text(size = 18),
+        legend.title = element_text(size = 20),
+        legend.key.width = unit(2, "cm")) +
+  guides(color = guide_legend(override.aes = list(linewidth = 2)))
+
+combo_fig_18h_72h <- p1 / p2 
+
+ggsave(out_png("combo_fig_18h_72h"),
+       combo_fig_18h_72h, width = 12, height = 12)
+
+combo_fig_18h_72h
+```
+
+#### Comparison to experimental data
+
+
+```{r}
+combo_fig_chem_inh_vary_base <- (X_18h_v_inh_frac_beta_bref + 
+   ggtitle("Brefeldin") +
+   theme(legend.position = "none")) + 
+  (X_18h_v_inh_frac_beta_chp + 
+     ggtitle("Chlorpromazine") +
+     theme(legend.position = "none")) +
+  (X_18h_v_inh_frac_beta_tat + 
+     ggtitle("TATNSF700") +
+     theme(legend.position = "none")) +
+  (X_18h_v_inh_frac_gamma_chq + ggtitle("Chloroquine") +
+     theme(legend.position = "none")) +
+  (I_18h_v_inh_frac_beta_bref + theme(legend.position = "none")) +
+  (I_18h_v_inh_frac_beta_chp + theme(legend.position = "none")) +
+  (I_18h_v_inh_frac_beta_tat + theme(legend.position = "none")) +
+  (I_18h_v_inh_frac_gamma_chq + theme(legend.position = "none")) +
+  plot_layout(ncol = 4, axis_titles = "collect")
+
+ggsave(out_png("combo_fig_chem_inh_vary_base"),
+       combo_fig_chem_inh_vary_base, width = 20, height = 10)
+
+combo_fig_chem_inh_vary_base
+```
+
+

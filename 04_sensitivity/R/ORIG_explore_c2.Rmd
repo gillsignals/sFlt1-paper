@@ -1,0 +1,308 @@
+---
+title: "Untitled"
+author: "Amy Gill"
+date: "2023-06-20"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Setup
+
+### Common setup
+
+```{r}
+# load packages, define helper functions, define color palettes, load experimental data
+source("../../helper_scripts/setup.R")
+```
+
+### Set output file
+
+```{r}
+# define folder where output will be saved (for example, png images from ggsave)
+outfile_prefix = "../../../saved-figs/04_sensitivity/explore_c2/"
+dir.create(outfile_prefix, recursive = TRUE)
+```
+
+
+## Import data
+
+### Import .mat files
+
+```{r}
+param_file_name <- "../../../saved-data/04_sensitivity/explore_c2/input.mat"
+alt_file_name <- "../../../saved-data/04_sensitivity/explore_c2/explore_c2.mat"
+
+# read files and extract data
+param_file <- readMat(param_file_name)
+alt_file <- readMat(alt_file_name)
+```
+
+```{r}
+names(param_file)
+```
+
+
+```{r}
+names(alt_file)
+```
+
+### Species names and parameter names
+
+```{r}
+# extract species names
+species_names <- str_replace(names(param_file$sp[,,1]), "\\.", "_")
+param_names <- unlist(alt_file$param.names)
+```
+
+### Extract time points
+
+```{r}
+time_vec <- alt_file$sim.time[1,]
+```
+
+### Extract time courses
+
+```{r}
+# format data frames of simulated species values for time courses
+make_sim_Y_df <- function(Y_mat){
+  
+  # flatten matrix to data frame of time course data
+  # (this isn't very "R-style", but it works, so tell Hadley to chill)
+  for (i in 1:dim(Y_mat)[3]) {
+    if (i == 1) {    # first run: initialize output data frame
+      # extract matrix for first parameter set to a data frame
+      Y_temp <- as.data.frame(Y_mat[,,1])
+      names(Y_temp) <- species_names
+      Y_temp$run_y <- 1
+        
+      # initialize full Y data frame to the time course from this first run
+      Y_df <- Y_temp
+      
+    } else {    # later runs: append to data frame
+      Y_temp <- as.data.frame(Y_mat[,,i])
+      names(Y_temp) <- species_names
+      Y_temp$run_y <- i
+      Y_df <- rbind(Y_df, Y_temp)
+    }
+  }
+  
+  Y_df
+  
+}
+
+# extract simulated time courses
+Y_df <- make_sim_Y_df(alt_file$Y.all)
+
+Y_df <- Y_df %>%
+  mutate(t = rep(time_vec, dim(alt_file$Y.all)[3])) %>%
+  select(t, run = run_y, everything())
+```
+
+```{r}
+Y_df
+```
+### Extract parameter values
+
+```{r}
+param_val_df <- as.data.frame(t(alt_file$p.mod.all))
+
+names(param_val_df) <- param_names
+
+param_val_df$run <- 1:nrow(param_val_df)
+
+param_val_df <- param_val_df %>%
+  mutate(ab = alpha*beta,
+         bpg = beta + gamma)
+
+param_val_df
+```
+
+```{r}
+param_val_df %>%
+  select(run, beta) %>%
+  mutate(beta = factor(round(beta, 3))) %>%
+  right_join(Y_df)
+```
+
+
+### Extract outputs to list
+
+```{r}
+alt_file_outlist <- alt_file$out[,,1]
+names(alt_file_outlist) <- str_replace_all(names(alt_file_outlist), "\\.", "_")
+names(alt_file_outlist)
+```
+
+
+## Plot
+
+### X versus t colored by beta
+
+```{r}
+c2_fixed_X_v_t <- param_val_df %>%
+  select(run, beta) %>%
+  mutate(beta = factor(round(beta, 3))) %>%
+  right_join(Y_df) %>%
+  ggplot(aes(t, X, color = beta)) +
+  geom_line(size = 2) +
+  scale_x_continuous(breaks = seq(0, 72, by = 24), expand = c(0,0)) +
+  scale_color_manual(name = TeX(r'($\beta$ $(h^{-1})$)'), values = viridis(7)) +
+  theme_paper +
+  xlab("Time (h)") +
+  ylab("X (ng/mL)") #+
+#  ggtitle(TeX(r'($c_2 = \beta + \gamma = .191$ $h^{-1}$)'))
+
+# save plot
+ggsave(out_png("c2_fixed_X_v_t"),
+       c2_fixed_X_v_t, width = 6, height = 4)
+
+c2_fixed_X_v_t
+```
+
+
+### X versus t colored by c1
+
+```{r}
+c2_fixed_X_v_t_by_c1 <- param_val_df %>%
+  select(run, ab) %>%
+  mutate(ab = factor(round(ab))) %>%
+  right_join(Y_df) %>%
+  ggplot(aes(t, X, color = ab)) +
+  geom_line(size = 2) +
+  scale_color_manual(name = TeX(r'($c_1 = \alpha \beta$ (#/cell/$h^2$))'), values = viridis(7)) +
+  scale_x_continuous(breaks = seq(0, 72, by = 24), expand = c(0,0)) +
+  theme_paper +
+  xlab("Time (h)") +
+  ylab("X (ng/mL)") #+
+#  ggtitle(TeX(r'($c_2 = \beta + \gamma = .191$ $h^{-1}$)'))
+
+# save plot
+ggsave(out_png("c2_fixed_X_v_t_by_c1"),
+       c2_fixed_X_v_t_by_c1, width = 6, height = 4)
+
+c2_fixed_X_v_t_by_c1
+```
+
+### X at 72h versus beta
+
+For a given c2, X is proportional to beta
+
+```{r}
+c2_fixed_x72_v_beta <- param_val_df %>%
+  select(run, beta) %>%
+  mutate(X_72 = alt_file_outlist$X_72) %>%
+  ggplot(aes(beta, X_72)) +
+  geom_point(size = 5) +
+#  geom_line() +
+  xlab(TeX(r'($\beta$ $(h^{-1})$)')) +
+  ylab(TeX(r'($\X_{72h}$ (ng/mL))')) +
+  theme_paper #+
+#  ggtitle(TeX(r'($c_2 = \beta + \gamma = .191$ $h^{-1}$)'))
+
+# save plot
+ggsave(out_png("c2_fixed_x72_v_beta"),
+       c2_fixed_x72_v_beta, width = 6, height = 4)
+
+c2_fixed_x72_v_beta
+```
+
+### X at 72h versus gamma
+
+
+```{r}
+c2_fixed_x72_v_gamma <- param_val_df %>%
+  select(run, gamma) %>%
+  mutate(X_72 = alt_file_outlist$X_72) %>%
+  ggplot(aes(gamma, X_72)) +
+  geom_point(size = 5) +
+#  geom_line() +
+  xlab(TeX(r'($\gamma$ $(h^{-1})$)')) +
+  ylab(TeX(r'($\X_{72h}$ (ng/mL))')) +
+  theme_paper #+
+#  ggtitle(TeX(r'($c_2 = \beta + \gamma = .191$ $h^{-1}$)'))
+
+# save plot
+ggsave(out_png("c2_fixed_x72_v_gamma"),
+       c2_fixed_x72_v_gamma, width = 6, height = 4)
+
+c2_fixed_x72_v_gamma
+```
+
+### X at 72h versus c1
+
+
+
+```{r}
+c2_fixed_x72_v_c1 <- param_val_df %>%
+  select(run, ab) %>%
+  mutate(X_72 = alt_file_outlist$X_72) %>%
+  ggplot(aes(ab, X_72)) +
+  geom_point(size = 5) +
+  scale_x_continuous(breaks = seq(0,25000, by = 6250)) +
+#  geom_line() +
+  xlab(TeX(r'($c_1 = \alpha \beta$ (#/cell/$h^2$))')) +
+  ylab(TeX(r'($\X_{72h}$ (ng/mL))')) +
+  theme_paper #+
+#  ggtitle(TeX(r'($c_2 = \beta + \gamma = .191$ $h^{-1}$)'))
+
+# save plot
+ggsave(out_png("c2_fixed_x72_v_c1"),
+       c2_fixed_x72_v_c1, width = 6, height = 4)
+
+c2_fixed_x72_v_c1
+```
+
+### X at 72h v nontrivial params
+
+```{r}
+c2_fixed_x72_v_params <- c2_fixed_x72_v_c1 + c2_fixed_x72_v_beta + c2_fixed_x72_v_gamma + 
+  plot_layout(nrow = 1)
+
+ggsave(out_png("c2_fixed_x72_v_params"),
+       c2_fixed_x72_v_params, width = 12, height = 4)
+
+c2_fixed_x72_v_params
+```
+
+
+
+### I versus t by c1
+
+```{r}
+c2_fixed_I_v_t_by_c1 <- param_val_df %>%
+  select(run, ab) %>%
+  mutate(ab = factor(round(ab))) %>%
+  right_join(Y_df) %>%
+  ggplot(aes(t, I, color = ab)) +
+  geom_line(size = 2, alpha = 0.9) +
+  scale_color_manual(name = TeX(r'($c_1 = \alpha \beta$ (#/cell/$h^2$))'), values = viridis(7)) +
+  scale_x_continuous(breaks = seq(0, 72, by = 24), expand = c(0,0)) +
+  scale_y_continuous(labels = scientific, limits = c(0,1e6)) +
+  theme_paper +
+  xlab("Time (h)") +
+  ylab("I (#/cell)") +
+  theme(legend.position = "right")
+
+# save plot
+ggsave(out_png("c2_fixed_I_v_t_by_c1"),
+       c2_fixed_I_v_t_by_c1, width = 6, height = 4)
+
+c2_fixed_I_v_t_by_c1
+```
+### X,I v t by c1 combined
+
+
+```{r}
+c2_fixed_IX_v_t_by_c1 <- (c2_fixed_X_v_t_by_c1 + theme(legend.position = "none")) / 
+  (c2_fixed_I_v_t_by_c1 + theme(legend.position = "bottom"))
+
+# save plot
+ggsave(out_png("c2_fixed_IX_v_t_by_c1"),
+       c2_fixed_IX_v_t_by_c1, width = 6.5, height = 8)
+
+c2_fixed_IX_v_t_by_c1
+```

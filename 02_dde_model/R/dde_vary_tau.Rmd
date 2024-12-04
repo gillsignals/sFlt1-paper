@@ -1,0 +1,372 @@
+---
+title: "sFLT1 ODE modeling - Import simulation data"
+author: "Amy Gill"
+date: "2023-08-14"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+This file analyzes data from the general solution of the base (5 parameter) 2 equation sFLT1 DDE model at various values of maturation delay $\tau$.
+
+The simulations were performed 8/18/23 using the Matlab script "sFlt-model/02_dde_model/base_dde_driver.m" with following options: 
+
+run_mode = "vary_tau_on_off";
+alpha = 10,000, beta = 0.1, gamma = 0.1, delta = 0.1,
+taus = (1e-6:0.25:2) * t50_X;
+num_time_points = 12;    # duration of pulse and chase in terms of X half-lives 
+
+## Setup
+
+### Packages, helpers, palettes, themes
+
+```{r}
+# load packages, define helper functions, define color palettes, load experimental data
+source("../../helper_scripts/setup.R")
+
+# define theme for exporting at a legible size (default)
+theme_big <- theme1 +
+  theme(legend.position = "bottom",
+        axis.title.y = element_text(angle = 0, vjust = 0.5, size = 16),
+        axis.text = element_text(size = 10),
+        legend.title = element_text(size = 14),
+        legend.text = element_text(size = 10))
+```
+
+
+### Set output directory
+
+```{r}
+# define folder where output will be saved (for example, png images from ggsave)
+outfile_prefix = "../../../saved-figs/02_dde_model/toy_taus/"
+dir.create(outfile_prefix, recursive = TRUE)
+```
+
+## Import data
+
+### Load files
+
+```{r}
+# specify file names
+param_file_name <- "../../../saved-data/02_dde_model/on_off_taus_input.mat"
+sim_file_name <- "../../../saved-data/02_dde_model/on_off_sim_taus.mat"
+
+# import file data
+param_file <- readMat(param_file_name)
+sim_file <- readMat(sim_file_name)
+```
+
+### Extract species and parameter names, key numbers
+
+```{r}
+# extract parameter names
+param_names <- names(param_file$p[,,1])
+
+# extract species names
+species_names <- str_replace(names(param_file$sp[,,1]), "\\.", "_")
+
+# extract number of parameter sets
+num_param_sets <- length(param_file$taus)
+
+# extract conversion factor to move X concentrations (ng/mL) to corresponding #/cell
+conv_factor_numcell_to_ngml <- param_file$conv.factor.ngml[1,1]
+
+# extract number of time units
+num_time_units <- param_file$num.time.units
+```
+
+### Extract initial parameter values
+
+```{r}
+# extract the sets of parameter values
+p_vec <- unlist(param_file$p[,,1])
+
+init_df <- data.frame(run = 1:num_param_sets,
+                      alpha = p_vec["alpha"],
+                      beta = p_vec["beta"],
+                      gamma = p_vec["gamma"],
+                      delta = p_vec["delta"],
+                      tau = t(param_file$taus))
+
+init_df <- init_df %>%
+  mutate(t50_X = log(2)/delta,
+         tau_raw = round(tau/t50_X,3),
+         tau_raw_fac = factor(tau_raw))
+
+init_df
+```
+
+
+```{r}
+init_df_small <- init_df %>%
+  filter(tau_raw %in% seq(0, 2, by = 0.5))
+
+init_df_small
+```
+
+
+
+### Extract time points
+
+```{r}
+t_vec <- sim_file$pc.sim.time[1,] + c(num_time_units)
+```
+
+### Extract time courses
+
+```{r}
+I_df <- data.frame(sim_file$I.norm.all) %>%
+  mutate(t = t_vec) %>%
+  pivot_longer(X1:X9, names_to = "run", values_to = "I_norm") %>%
+  mutate(run = as.integer(str_remove(run, "X")))
+
+X_df <- data.frame(sim_file$X.norm.all) %>%
+  mutate(t = t_vec) %>%
+  pivot_longer(X1:X9, names_to = "run", values_to = "X_norm") %>%
+  mutate(run = as.integer(str_remove(run, "X")))
+
+make_tc_df <- function(in_df){
+  
+  bind_rows(lapply(1:num_param_sets, function(i){
+  
+  temp_df <- in_df %>%
+    filter(run == i) %>%
+    mutate(alpha_frac = ifelse(t <= c(num_time_units), 1, 0),
+           order = 1)
+
+  # note that the first two time points are intended to be before the "on" phase (draw base line)
+  temp_df$alpha_frac[1:2] <- 0
+
+  # note that the "on" point should be plotted after the "off" point at t=0
+  temp_df$order[3] <- 2
+
+  # shorten the time interval displayed before the "on" phase
+  temp_df$t[1] <- -2
+
+  # revise duplicated point where production switches off
+  ind <- which(temp_df$t == c(num_time_units) & duplicated(temp_df$t))
+  temp_df$alpha_frac[ind] <- 0
+  temp_df$order[ind] <- 2
+  
+  temp_df <- temp_df %>%
+    arrange(t, order)
+  
+  temp_df
+}),
+.id = "column_label")}
+
+I_df <- make_tc_df(I_df)
+X_df <- make_tc_df(X_df)
+
+full_df <- I_df %>%
+  left_join(X_df, by = c("column_label", "run", "t", "order", "alpha_frac")) %>%
+  select(run, t, order, alpha_frac, I_norm, X_norm) %>%
+  left_join(init_df, by = "run") %>%
+  mutate(secr_flux_norm = beta * I_norm,
+         int_degr_flux_norm = gamma * I_norm,
+         ext_degr_flux_norm = delta * X_norm)
+
+full_df
+```
+
+
+```{r}
+full_df_small <- full_df %>%
+  filter(tau_raw %in% seq(0, 2, by = 0.5))
+```
+
+
+## Plot time courses
+
+### Plot alpha
+
+```{r}
+dde_sol_alpha_v_t <- full_df %>%
+  ggplot(aes(t, alpha_frac)) +
+  #geom_vline(xintercept = 0, size = 0.5, lty = 2) +
+  #geom_vline(xintercept = num_time_units, size = 0.5, lty = 2) +
+  geom_hline(yintercept = 0, size = 0.5) +
+  geom_hline(yintercept = 1, size = 1, lty = 2, color = cb_pal[2]) +
+  annotate("label", x = 17, y = 1, label = TeX(r'($\alpha_{max}$)'), 
+           size = 8, color = cb_pal[2], family = "serif") +
+  geom_line(color = cb_pal[param$alpha], size = 1.5) +
+  theme_paper +
+  theme(axis.title.y = element_text(angle = 0, vjust = 0.5, size = 16)) +
+  ylab(TeX(r'($\frac{\alpha}{\alpha_{max}}$)')) +
+  xlab("Time (normalized)") +
+  scale_x_continuous(limits = c(-2, 20), expand = c(0,0),
+                     breaks = seq(0, 20, by = 2)) +
+  scale_y_continuous(expand = c(0.05, 0.05))
+
+dde_sol_alpha_v_t
+```
+
+
+### Plot I
+
+```{r}
+dde_sol_I_v_t <- full_df_small %>%
+  ggplot(aes(t, I_norm, color = factor(tau_raw))) +
+  geom_vline(xintercept = 0, size = 1, lty = 2, color = cb_pal[param$alpha]) +
+  geom_vline(xintercept = num_time_units, size = 1, lty = 2, color = cb_pal[param$alpha]) +
+  geom_hline(yintercept = 1, size = 1, lty = 2, color = cb_pal[2]) +
+  geom_hline(yintercept = 0, size = 0.5) +
+  geom_line(size = 1.5) +
+  annotate("label", x = 17, y = 1, label = TeX(r'($I_{SS}$)'), 
+           size = 8, color = cb_pal[2], family = "serif") +
+  theme_paper +
+  theme(axis.title.y = element_text(angle = 0, vjust = 0.5, size = 16)) +
+  ylab(TeX(r'($\frac{I}{I_{SS}}$)')) +
+  xlab("Time (normalized)") +
+  scale_y_continuous(breaks = seq(0, 3, by = 0.5)) +
+  scale_x_continuous(limits = c(-2, 20), expand = c(0,0),
+                     breaks = seq(0, 20, by = 2)) +
+  scale_color_manual(values = viridis(nrow(init_df_small))) +
+  labs(color = TeX(r'($\tau$)'))
+
+dde_sol_I_v_t
+```
+
+### Plot X
+
+```{r}
+dde_sol_X_v_t <- full_df_small %>%
+  ggplot(aes(t, X_norm, color = tau_raw_fac)) +
+  geom_vline(xintercept = 0, size = 1, lty = 2, color = cb_pal[param$alpha]) +
+  geom_vline(xintercept = num_time_units, size = 1, lty = 2, color = cb_pal[param$alpha]) +
+  geom_hline(yintercept = 1, size = 1, lty = 2, color = cb_pal[2]) +
+  geom_hline(yintercept = 0, size = 0.5) +
+  geom_line(size = 1.5) +
+  annotate("label", x = 17, y = 1, label = TeX(r'($X_{SS}$)'), 
+           size = 8, color = cb_pal[2], family = "serif") +
+  theme_paper +
+  theme(axis.title.y = element_text(angle = 0, vjust = 0.5, size = 16)) +
+  ylab(TeX(r'($\frac{X}{X_{SS}}$)')) +
+  xlab("Time (normalized)") +
+  scale_y_continuous(breaks = seq(0, 3, by = 0.5)) +
+  scale_x_continuous(limits = c(-2, 20), expand = c(0,0),
+                     breaks = seq(0, 20, by = 2)) +
+  scale_color_manual(values = viridis(nrow(init_df_small))) +
+  labs(color = TeX(r'($\tau$)'))
+
+dde_sol_X_v_t
+```
+
+### Combined time courses
+
+```{r}
+dde_sol_timecourses <- (dde_sol_alpha_v_t +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_text(size = 24)) +
+  scale_y_continuous(limits = c(0,1.1), breaks = seq(0,1,by=0.25))) /
+  (dde_sol_I_v_t +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_text(size = 24),
+        legend.position = "none")) / 
+  (dde_sol_X_v_t +
+ # plot_layout(guides = "collect") &
+  theme(legend.position = "bottom",
+        legend.title = element_text(size = 28),
+        legend.text = element_text(size = 20),
+        axis.title.y = element_text(size = 24)))
+
+ggsave(out_png("dde_sol_timecourses"),
+       dde_sol_timecourses, width = 6, height = 8)
+
+dde_sol_timecourses
+```
+
+
+
+## Plot phase portraits
+
+
+
+
+
+```{r}
+dde_sol_phases <- full_df_small %>%
+  ggplot(aes(X_norm, I_norm, color = tau_raw_fac)) +
+  geom_abline(slope = 1, intercept = 0, lty = 2, size = 1.5, color = cb_pal[2]) +
+  geom_path(size = 1.5) +
+  theme_paper +
+  scale_color_manual(values = viridis(nrow(init_df_small))) +
+  labs(color = TeX(r'($\tau$)')) +
+  theme(legend.position = "bottom",
+        legend.title = element_text(size = 28),
+        legend.text = element_text(size = 20),
+        axis.title.y = element_text(size = 24, angle = 0)) +
+  ylab(TeX(r'($\frac{I}{I_{SS}}$)')) +
+  xlab(TeX(r'($\frac{X}{X_{SS}}$)')) +
+  geom_path(data = filter(full_df, tau_raw_fac == 2, t < 2.5), 
+            arrow = arrow(), size = 1.5, show.legend = FALSE) +
+  geom_path(data = filter(full_df, tau_raw_fac == 1.5, t < 2.25),
+            arrow = arrow(), size = 1.5, show.legend = FALSE) +
+  geom_path(data = filter(full_df, tau_raw_fac == 1, t < 1.9),
+            arrow = arrow(), size = 1.5, show.legend = FALSE) +
+  geom_path(data = filter(full_df, tau_raw_fac == 0.5, t < 1.6),
+            arrow = arrow(), size = 1.5, show.legend = FALSE) +
+  geom_path(data = filter(full_df, tau_raw_fac == 0, t < 1.8),
+            arrow = arrow(), size = 1.5, show.legend = FALSE) +
+  geom_path(data = filter(full_df, tau_raw_fac == 2, t < 12.6),
+            arrow = arrow(), size = 1.5, show.legend = FALSE) +
+  geom_path(data = filter(full_df, tau_raw_fac == 1.5, t < 13.2),
+            arrow = arrow(), size = 1.5, show.legend = FALSE) +
+  geom_path(data = filter(full_df, tau_raw_fac == 1, t < 13.4),
+            arrow = arrow(), size = 1.5, show.legend = FALSE) +
+  geom_path(data = filter(full_df, tau_raw_fac == 0.5, t < 15),
+            arrow = arrow(), size = 1.5, show.legend = FALSE) +
+  geom_path(data = filter(full_df, tau_raw_fac == 0, t < 18), 
+            arrow = arrow(), size = 1.5, show.legend = FALSE) +
+  annotate("label", x = 1.65, y = 1.65, label = TeX(r'(I = \frac{\beta}{\delta}X)'), 
+           color = cb_pal[2], size = 5, family = "serif") 
+
+ggsave(out_png("dde_sol_phases"),
+       dde_sol_phases, width = 6, height = 8)
+
+dde_sol_phases
+```
+
+
+
+
+### OLD
+
+```{r}
+dde_sol_phase_portrait <- Y_df %>%
+  ggplot(aes(X_norm, I_norm)) +
+  geom_abline(slope = 1, intercept = 0, lty = 2, size = 1.5, color = cb_pal[2]) +
+  geom_path(size = 1) +
+  #geom_path(data = filter(Y_df, t < 0.5), arrow = arrow()) +
+  geom_path(data = filter(Y_df, t < 0.5), arrow = arrow()) +
+  geom_path(data = filter(Y_df, t < 1.55), arrow = arrow()) +
+  geom_path(data = filter(Y_df, t < 2.3), arrow = arrow()) +
+  geom_path(data = filter(Y_df, t < 4.6), arrow = arrow()) +
+  geom_path(data = filter(Y_df, t < 6.6), arrow = arrow()) +
+  geom_path(data = filter(Y_df, t < 8.8), arrow = arrow()) +
+  geom_path(data = filter(Y_df, t < 11), arrow = arrow()) +
+  geom_path(data = filter(Y_df, t < 12.6), arrow = arrow()) +
+  geom_path(data = filter(Y_df, t < 13.4), arrow = arrow()) +
+  geom_path(data = filter(Y_df, t < 15), arrow = arrow()) +
+  geom_path(data = filter(Y_df, t < 17), arrow = arrow()) +
+  annotate("label", x = 0.4, y = 0.4, label = TeX(r'(I = \frac{\beta}{\delta}X)'), 
+           color = cb_pal[2], size = 5, family = "serif") +
+  annotate("label", x = 0.3, y = 1.2, label = "Increasing\nsFLT1", family = "serif") +
+  annotate("label", x = 0.8, y = 0.3, label = "Decreasing\nsFLT1", family = "serif") +
+  geom_point(data = Y_annot, aes(fill = viridis), alpha = 0.9,
+             shape = 21, col = "black", size = 5, show.legend = FALSE) +
+  scale_fill_manual(values = viridis(length(t_annot))) +
+  theme_big +
+  scale_x_continuous(breaks = seq(0, 1.2, by = 0.2)) +
+  xlab(TeX(r'($\frac{X}{X_{SS}}$)')) +
+  ylab(TeX(r'($\frac{I}{I_{SS}}$)'))
+
+ggsave(out_png("dde_sol_phase_portrait"),
+       dde_sol_phase_portrait, width = 4, height = 4)
+
+dde_sol_phase_portrait
+```

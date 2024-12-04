@@ -1,0 +1,945 @@
+---
+title: "Optimization to sFLT1 datasets from Hornig, Jung and Kinghorn"
+author: "Amy Gill"
+date: "2023-08-23"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+This file analyzes data from optimization of the 2 equation sFLT1 DDE model to the Jung and Hornig time course datasets. These data were imported using the script "sFlt-model/analysis-R/draft/03_candidate_models/candidate_models_import.Rmd".
+
+The optimization was performed 8/23/23 using the Matlab script "sFlt-model/03_candidate_models/dde_candidate_models.m with following options: 
+
+run_mode = "candidate_model_opt";
+jung_cost_option = "omit_last_Sx_relative";
+hornig_cost_option = "relative_omit3h";
+kinghorn_cost_option = "all_pts_relative";
+num_param_sets = 100;    (# per candidate model)
+
+Optimizing to summary statistics only (mean at each time point) for Kinghorn optimization.
+
+This optimization uses 4 species (I, I_deg, X, X_deg) and optimizes 7 parameters ($\alpha$, $\beta$, $\gamma$, $\delta$, $\epsilon$, $\kappa$, $\tau$) by calculating absolute cost in comparison to all of the following datasets:
+
+- Jung X (normalized to 8h)
+- Jung I (normalized to 0h)
+- Hornig basal X concentration (absolute, ng/mL -> #/cell)
+- Kinghorn X (normalized to 24h)
+- Kinghorn I (normalized to 0h)
+
+## Setup
+
+### Common setup
+
+```{r}
+# load packages, define helper functions, define color palettes, load experimental data
+source("../../helper_scripts/setup.R")
+```
+
+### Define output directory
+
+```{r}
+# define folder where output will be saved (for example, png images from ggsave)
+outfile_prefix = "../../../saved-figs/03_candidate_models/"
+dir.create(outfile_prefix, recursive = TRUE)
+```
+
+
+### Import data
+
+#### Optimization runs
+
+```{r}
+# load optimization results from 2023-08-23
+# (if file is not present, run "candidate_models_import.Rmd" to create it)
+load("../../../saved-data/03_candidate_models/pulsechase_constitutive_opt_sims.rda")
+```
+
+```{r}
+# load filtered optimization results
+# (if file is not present, run "candidate_models_import.Rmd" to create it)
+load("../../../saved-data/03_candidate_models/candidate_opt_sims_processed.rda")
+```
+
+
+### Specify number of observations for AIC calculation
+
+Jung X: 0 (no), **2, 4, 6,** 8 (no - normalized to 1), 10 (omitted) - 3 points
+Jung I: 0 (no - normalized to 1), **2, 4, 6, 8, 10** - 5 points
+Hornig X: 0 (no), 3 (omitted - assume BLQ), **6, 9, 12, 24, 48, 72** - 6 points
+
+After summarizing, number of obs from Kinghorn
+
+Kinghorn X: **0, 1, 2, 4, 8, 12,** 24 (no) - 6 points
+Kinghorn I: 0 (no), **1, 2, 4, 8, 12, 24** - 6 points
+
+total: n = 26
+
+```{r}
+aic_num_obs <- 26
+```
+
+## Analysis before preprocessing
+
+### Create formatted data frames for analysis
+
+```{r}
+# param_df: a 4-column data frame
+# run = run number 1:1000
+# parameter = factor, parameter definition(alpha, beta, gamma, delta, epsilon, kappa, tau)
+# init_opt = factor, INIT = initial guess, OPT = optimized value
+# value = parameter value
+param_df <- meta_df %>%
+  select(run:OPT_tau) %>%
+  pivot_longer(INIT_alpha:OPT_tau, names_to = "parameter", values_to = "value") %>%
+  separate(parameter, into = c("init_opt", "parameter"), sep = "_") %>%
+  mutate(init_opt = ifelse(init_opt == "INIT", "initial", "optimal"),
+                           init_opt = factor(init_opt),
+         parameter = factor(parameter,
+                            levels = c("alpha", "beta", "gamma", "delta", 
+                                       "epsilon", "kappa", "tau"))) 
+
+# add cost to param_df (why not just update param_df?)
+param_df <- meta_df %>%
+  select(run, cost = total_cost) %>%
+  right_join(param_df, by = "run")
+
+# extract parameter names
+param_names <- levels(param_df$parameter)
+```
+
+### Cost distribution
+
+#### Density plot
+
+```{r}
+# create function to plot density function of cost
+plot_cost_distr_density <- function(df){
+  df %>%
+    ggplot(aes(total_cost, after_stat(scaled))) +
+    geom_density(fill = cb_pal[3]) +
+    #scale_x_log10() +
+    scale_x_continuous(trans = "log10", breaks = 10^(-2:5)) +
+    theme1 +
+    xlab("Sum of squared difference") +
+    ylab("Scaled density")
+}
+
+# plot cost distribution
+combo_cost_distr_unfiltered <- plot_cost_distr_density(meta_df) +
+    ggtitle("Cost function values for optimal parameters - all fits")
+  
+  
+combo_cost_distr_unfiltered
+```
+
+```{r}
+# save plot
+ggsave(out_png("combo_cost_distr_unfiltered"),
+       combo_cost_distr_unfiltered, width = 9, height = 6)
+```
+
+#### Violin plot
+
+```{r}
+# create function to make violin plot of cost distribution
+plot_cost_violin <- function(df){
+  df %>%
+    ggplot(aes(factor(" "), total_cost)) +
+    geom_violin(scale = "width", fill = cb_pal[2]) +   # not trimming b/c hard min value 
+    geom_boxplot(width = 0.3, fill = "white") +
+    scale_y_continuous(trans = "log10", breaks = 10^(-2:5)) +
+    xlab("") +
+    ylab("Sum of squared difference") +
+    coord_flip() +
+    theme1
+}
+
+cost_violin <- plot_cost_violin(meta_df) +
+  ggtitle("Violin plot of cost function values for optimal parameters")
+
+cost_violin
+```
+
+#### Faceted by model
+
+```{r}
+meta_df %>%
+    ggplot(aes(total_cost, ..scaled..)) +
+    geom_density(fill = cb_pal[3]) +
+  facet_wrap(~ candidate_model) +
+    #scale_x_log10() +
+    scale_x_continuous(trans = "log10", breaks = 10^(-2:5)) +
+    theme1 +
+    xlab("Sum of squared difference") +
+    ylab("Scaled density")
+```
+
+## AIC analysis
+
+### Min cost per model
+
+```{r}
+model_min_costs <- meta_df %>%
+  group_by(candidate_model) %>%
+  summarize(model_min_cost = min(total_cost, na.rm=TRUE))
+
+model_min_costs
+```
+
+### Calculate AIC
+
+n = `aic_num_obs`
+k = `aic_param_count`
+
+AIC = n log (cost/n) + 2k
+
+Because n/k < 40, use corrected AIC (AIC_c) = AIC + 2k*(k+1)/(n-k-1)
+
+```{r}
+# calculate AIC using the lowest cost fit
+aic_min_df <- model_min_costs %>%
+  left_join(meta_df) %>%
+  filter(total_cost == model_min_cost) %>%
+  mutate(candidate_model = factor(as.character(candidate_model)),
+         aic = aic_num_obs * log(model_min_cost / aic_num_obs) + 2 * aic_param_count,
+         aic_c = aic + 2 * aic_param_count * (aic_param_count + 1) / (aic_num_obs - aic_param_count - 1)) %>%
+  arrange(aic_c) %>%
+  mutate(candidate_model = factor(candidate_model)) %>%
+  select(candidate_model, aic_param_count, aic, aic_c, prod_decay:internalize, cost_hornig_x_ssd:log2_cost)
+
+aic_min_df
+```
+
+```{r}
+aic_stats_df <- model_min_costs %>%
+  mutate(cost_cutoff = model_min_cost * 1.1) %>%
+  left_join(meta_df) %>%
+  filter(total_cost < cost_cutoff) %>%  # keep only fits within 10% of minimum cost per model %>%
+  mutate(candidate_model = factor(as.character(candidate_model)),
+         aic = aic_num_obs * log(model_min_cost / aic_num_obs) + 2 * aic_param_count,
+         aic_c = aic + 2 * aic_param_count * (aic_param_count + 1) / 
+           (aic_num_obs - aic_param_count - 1)) %>%
+  group_by(candidate_model) %>%
+  summarize(avg_cost_top10pct = mean(total_cost),
+            avg_aic = mean(aic),
+            avg_aic_c = mean(aic_c)) %>%
+  arrange(avg_aic_c) 
+
+aic_stats_df <- meta_df %>%
+  select(candidate_model, prod_decay, mat_delay, internalize) %>%
+  mutate(candidate_model = factor(candidate_model)) %>%
+  filter(!duplicated(candidate_model)) %>%
+  right_join(aic_stats_df, by = "candidate_model") %>%
+  arrange(avg_aic_c)
+
+aic_stats_df
+```
+
+### AIC barplot
+
+```{r}
+aic_stats_df_reordered <- aic_min_df %>%
+  mutate(candidate_model = fct_reorder(candidate_model, aic_c))
+
+aic_stats_df_reordered %>%
+  ggplot(aes(factor(candidate_model), aic_c)) +
+  geom_bar(stat = "identity") +
+  xlab("Candidate model") +
+  ylab("Corrected AIC") +
+  theme1
+```
+### Cost barplot
+
+#### Standard
+
+```{r}
+aic_df_reordered <- aic_min_df %>%
+  mutate(candidate_model = fct_reorder(candidate_model, aic_c))
+
+aic_df_reordered %>%
+  ggplot(aes(factor(candidate_model), total_cost)) +
+  geom_bar(stat = "identity") +
+  xlab("Candidate model") +
+  ylab("Cost (Residual sum of squares)") +
+  theme1
+```
+
+#### Stacked
+
+Stacked barplot showing total cost (sum of squared differences) and cost distribution across (Hornig X, Kinghorn X, Kinghorn I, Jung X, Jung I)
+
+```{r}
+aic_df_reordered %>%
+  pivot_longer(cost_hornig_x_ssd:cost_kinghorn_i_ssd, 
+               names_to = "dataset", values_to = "cost") %>%
+  ggplot(aes(factor(candidate_model), cost, fill = dataset)) +
+  geom_bar(position = "stack", stat = "identity") +
+  xlab("Candidate model") +
+  ylab("Cost (Residual sum of squares)") +
+  theme1 +
+  scale_fill_manual(values = cb_pal[3:7], labels = c("Hornig X", "Jung I", "Jung X", "Kinghorn I", "Kinghorn X"))
+```
+
+### Heatmap attempt 1
+
+```{r}
+# heatmap - just repeats model component annotation
+cost_mat <- t(as.matrix(select(aic_df_reordered, cost_hornig_x_ssd: cost_kinghorn_i_ssd)))
+
+# create barplot annotations for candidate models
+aic_anno <- anno_barplot(aic_df_reordered$aic_c)
+cost_anno <- anno_barplot(t(cost_mat), gp = gpar(fill = cb_pal[7:3]), height = unit(6, "cm"))
+
+# 
+model_features <- aic_df_reordered %>%
+  select(prod_decay, mat_delay, internalize)
+
+
+# create annotation table for model components
+model_anno <- HeatmapAnnotation(cost = cost_anno,
+                                AIC_c = aic_anno,
+                                df = data.frame(prod_decay = aic_df_reordered$prod_decay,
+                                                mat_delay = aic_df_reordered$mat_delay,
+                                                internalize = aic_df_reordered$internalize),
+                                col = list(prod_decay = c("off" = cb_pal[6], 
+                                                          "lin_decay" = cb_pal[3],
+                                                          "exp_decay" = cb_pal[4],
+                                                          "delay_off" = cb_pal[5]),
+                                           mat_delay = c("no" = cb_pal[6], 
+                                                         "yes" = cb_pal[7]),
+                                           internalize = c("no" = cb_pal[6],
+                                                                "yes" = cb_pal[2])),
+                                gp = gpar(col = cb_pal[1]),
+                                annotation_height = c(40,20,5,5,5))
+
+
+
+Heatmap(cost_mat,
+        col = viridis(100),
+        cluster_columns = FALSE,
+        bottom_annotation = model_anno)
+```
+
+## Analysis with only one prod_decay variant
+
+```{r}
+# identify candidate models that test only 2 production decays: none or exponential 
+reduced_models <- meta_df %>%
+  filter(prod_decay %in% c("off", "exp_decay")) %>%
+  pull(candidate_model) %>%
+  unique()
+
+reduced_aic_min_df <- aic_min_df %>%
+  filter(candidate_model %in% reduced_models)
+
+reduced_aic_stats_df <- aic_stats_df %>%
+  filter(candidate_model %in% reduced_models)
+
+reduced_aic_stats_df_reordered <- aic_stats_df_reordered %>%
+  filter(candidate_model %in% reduced_models)
+
+reduced_aic_df_reordered <- aic_df_reordered %>%
+    filter(candidate_model %in% reduced_models) %>%
+  mutate(prod_decay = (prod_decay == "exp_decay"),
+         mat_delay = (mat_delay == "yes"),
+         internalize = (internalize == "yes"))
+
+reduced_aic_df_reordered 
+```
+
+
+```{r}
+reduced_aic_min_df
+```
+
+
+```{r}
+reduced_aic_min_df %>% 
+  select(internalize, prod_decay, mat_delay) %>%
+  mutate(internalize = internalize == "yes",
+         prod_decay = prod_decay == "exp_decay",
+         mat_delay = mat_delay == "yes") %>%
+  arrange(internalize, prod_decay, mat_delay) %>%
+  mutate(label = paste0("M", row_number())) %>%
+  select(label, everything())
+```
+
+
+```{r}
+reduced_aic_df_v2 <- reduced_aic_min_df %>% 
+  select(internalize, prod_decay, mat_delay) %>%
+  arrange(internalize, desc(prod_decay), mat_delay) %>%
+  mutate(label = paste0("M", row_number())) %>%
+  select(label, everything()) %>%
+  left_join(reduced_aic_min_df) %>%
+  select(-candidate_model) %>%
+  mutate(internalize = internalize == "yes",
+         prod_decay = prod_decay == "exp_decay",
+         mat_delay = mat_delay == "yes") %>%
+  arrange(aic_c)
+
+reduced_aic_df_v2
+```
+
+
+### AIC barplot
+
+```{r}
+reduced_aic_df_v2 %>%
+  ggplot(aes(label, aic_c)) +
+  geom_bar(stat = "identity") +
+  xlab("Candidate model") +
+  ylab("Corrected AIC") +
+  theme1
+```
+
+### Cost barplot
+
+#### Standard
+
+```{r}
+reduced_aic_df_v2 %>%
+  ggplot(aes(label, total_cost)) +
+  geom_bar(stat = "identity") +
+  xlab("Candidate model") +
+  ylab("Cost (Residual sum of squares)") +
+  theme1
+```
+
+#### Stacked
+
+Stacked barplot showing total cost (sum of squared differences) and cost distribution across (Hornig X, Kinghorn X, Kinghorn I, Jung X, Jung I)
+
+```{r}
+reduced_aic_df_v2 %>%
+  pivot_longer(cost_hornig_x_ssd:cost_kinghorn_i_ssd, 
+               names_to = "dataset", values_to = "cost") %>%
+  ggplot(aes(label, cost, fill = dataset)) +
+  geom_bar(position = "stack", stat = "identity") +
+  xlab("Candidate model") +
+  ylab("Cost (Residual sum of squares)") +
+  theme1 +
+  scale_fill_manual(name = "Cost (SSD)", values = cb_pal[3:7], 
+                    labels = c("Hornig X", "Jung I", "Jung X", "Kinghorn I", "Kinghorn X"))
+```
+
+### Heatmap attempt 2
+
+
+```{r}
+component_mat <- reduced_aic_df_v2 %>%
+  select(internalize:mat_delay) %>%
+  as.matrix() %>%
+  t()
+
+colnames(component_mat) <- reduced_aic_df_v2$label
+
+component_mat
+```
+
+
+```{r}
+# heatmap - just repeats model component annotation
+component_num_mat <- matrix(as.integer(component_mat), nrow = nrow(component_mat))
+
+colnames(component_num_mat) <- reduced_aic_df_v2$label
+
+component_num_mat
+```
+
+
+```{r}
+# heatmap - just repeats model component annotation
+cost_mat <- t(as.matrix(select(reduced_aic_df_v2, cost_hornig_x_ssd: cost_kinghorn_i_ssd)))
+
+# create barplot annotations for candidate models
+aic_anno <- anno_barplot(reduced_aic_df_v2$aic_c, baseline = -55)
+cost_anno <- anno_barplot(t(cost_mat), gp = gpar(fill = cb_pal[7:3]), height = unit(6, "cm"))
+
+# 
+model_features <- reduced_aic_df_v2 %>%
+  select(prod_decay, mat_delay, internalize)
+
+# create annotation table for model components
+model_anno <- HeatmapAnnotation(cost = cost_anno,
+                                AIC_c = aic_anno,
+                                components = t(component_mat),
+                                gp = gpar(col = cb_pal[1]),
+                                annotation_height = c(40,20,15))
+
+ht_list <- Heatmap(cost_mat,
+        col = viridis(100),
+        cluster_columns = FALSE,
+        bottom_annotation = model_anno)
+
+ht_list
+```
+
+
+
+
+```{r}
+model_anno_2 <- HeatmapAnnotation(cost = cost_anno,
+                                AIC_c = aic_anno,
+                                annotation_height = c(40,20),
+                                annotation_label = gt_render(
+                                  c("Cost<br>(SSD)",
+                                    "AIC<sub>c</sub>"),
+                                  gp = gpar(fontsize = 16)
+                                ))
+
+ht_list_2 <- Heatmap(component_num_mat, col = c("white", "gray30"),
+                     row_labels = expression(epsilon, kappa, tau),
+                     column_labels = colnames(component_num_mat),
+                     column_names_rot = 45,
+                     row_names_gp = gpar(fontsize = 24),
+                     column_names_gp = gpar(fontsize = 20),
+                     heatmap_legend_param = list(
+                       labels = c("Yes", "No"),
+                       title = "Process\nincluded",
+                       border = cb_pal[1]),
+        cluster_columns = FALSE,
+        cluster_rows = FALSE,
+        rect_gp = gpar(col = cb_pal[1], lwd = 2),
+        bottom_annotation = model_anno_2)
+
+lgd_anno <- Legend(labels = c("Hornig X", "Jung I", "Jung X", 
+                              "Kinghorn I", "Kinghorn X"),
+                   title = "Dataset", legend_gp = gpar(fill = cb_pal[3:7]))
+
+lgd_heat <- Legend(labels = c("Yes", "No"), title = "Process\nIncluded",
+                   legend_gp = gpar(fill = c("gray30", "white")),
+                   border = cb_pal[1])
+
+draw(ht_list_2, annotation_legend_list = list(lgd_heat, lgd_anno))
+```
+
+```{r}
+g <- draw(ht_list_2, annotation_legend_list = list(lgd_heat, lgd_anno))
+g
+```
+
+
+```{r}
+png(out_png("gridplot"))
+plot(g)
+dev.off()
+```
+
+## -- BREAKPOINT --
+
+### Cost vs number of parameters
+
+```{r}
+reduced_aic_df_v2 %>%
+  select(label, aic_param_count, total_cost)
+```
+
+
+
+```{r}
+set.seed(4)
+a <- 15
+model_cost_v_nparams <- reduced_aic_df_v2 %>%
+  ggplot(aes(aic_param_count, total_cost)) +
+  geom_point(size = 3) +
+  
+  # manually add epsilon arrows
+  annotate("segment", x = 5.1, xend = 5.9,   # M1>M5 (epsilon)
+           y = 1.59, yend = 1.575, col = "gray40",
+           arrow = arrow(angle = a, type = "closed"), size = 1) +
+  annotate("segment", x = 6.05, xend = 6.95,   # M2>M6 (epsilon)
+           y = 1.09, yend = 1.04, col = "gray40",
+           arrow = arrow(angle = a, type = "closed"), size = 1) +
+  annotate("segment", x = 6.05, xend = 6.95,   # M3>M7 (epsilon)
+           y = 1.24, yend = 1.23, col = "gray40",
+           arrow = arrow(angle = a, type = "closed"), size = 1) +
+  annotate("segment", x = 7.05, xend = 7.95,   # M4>M8 (epsilon)
+           y = 1.02, yend = 0.96, col = "gray40",
+           arrow = arrow(angle = a, type = "closed"), size = 1) +
+  
+  # manually add kappa arrows
+  annotate("segment", x = 5.05, xend = 5.95,   # M1>M3 (kappa)
+           y = 1.57, yend = 1.27, col = cb_pal[7],
+           arrow = arrow(angle = a, type = "closed"), size = 1) +
+  annotate("segment", x = 6.05, xend = 6.95,   # M2>M4 (kappa)
+           y = 1.1, yend = 1.06, col = cb_pal[7],
+           arrow = arrow(angle = a, type = "closed"), size = 1) +
+  annotate("segment", x = 6.05, xend = 6.95,   # M5>M7 (kappa)
+           y = 1.55, yend = 1.24, col = cb_pal[7],
+           arrow = arrow(angle = a, type = "closed"), size = 1) +
+  annotate("segment", x = 7.05, xend = 7.95,   # M6>M8 (kappa)
+           y = 1.035, yend = 0.96, col = cb_pal[7],
+           arrow = arrow(angle = a, type = "closed"), size = 1) +
+  
+  # manually add tau arrows
+  annotate("segment", x = 5.05, xend = 5.95,   # M1>M2 (tau)
+           y = 1.57, yend = 1.13, col = cb_pal[8],
+           arrow = arrow(angle = a, type = "closed"), size = 1) +
+  annotate("segment", x = 6.05, xend = 6.95,   # M3>M4 (tau)
+           y = 1.24, yend = 1.06, col = cb_pal[8],
+           arrow = arrow(angle = a, type = "closed"), size = 1) +
+  annotate("segment", x = 6.05, xend = 6.95,   # M5>M6 (tau)
+           y = 1.55, yend = 1.05, col = cb_pal[8],
+           arrow = arrow(angle = a, type = "closed"), size = 1) +
+  annotate("segment", x = 7.05, xend = 7.95,   # M7>M8 (tau)
+           y = 1.21, yend = 0.96, col = cb_pal[8],
+           arrow = arrow(angle = a, type = "closed"), size = 1) +
+  
+  # manually add text labels in desired spots
+  annotate("text", x = 4.95, y = 1.53, label = "M1", size = 5) +
+  annotate("text", x = 5.8, y = 1.09, label = "M2", size = 5) +
+  annotate("text", x = 6.2, y = 1.28, label = "M3", size = 5) +
+  annotate("text", x = 7.25, y = 1.23, label = "M4", size = 5) +
+  annotate("text", x = 6.2, y = 1.59, label = "M5", size = 5) +
+  annotate("text", x = 6.9, y = 0.98, label = "M6", size = 5) +
+  annotate("text", x = 7.15, y = 1.08, label = "M7", size = 5) +
+  annotate("text", x = 8.2, y = 0.95, label = "M8", size = 5) +
+
+  # handmake legend
+  annotate("rect", xmin = 6.8, xmax = 8.3, ymin = 1.35, ymax = 1.62,
+           col = "black", fill = "white") +
+  annotate("segment", x = 6.9, xend = 7.5, 
+           y = 1.56, yend = 1.56, col = cb_pal[8],
+           arrow = arrow(angle = a, type = "closed"), size = 1) +
+  annotate("text", x = 7.9, y = 1.56, col = cb_pal[8],
+           label = "+ tau", parse = "true", size = 8) +
+  annotate("segment", x = 6.9, xend = 7.5, 
+           y = 1.485, yend = 1.485, col = cb_pal[7],
+           arrow = arrow(angle = a, type = "closed"), size = 1) +
+  annotate("text", x = 7.9, y = 1.485, col = cb_pal[7],
+           label = "+ kappa", parse = "true", size = 8) +
+  annotate("segment", x = 6.9, xend = 7.5, 
+           y = 1.41, yend = 1.41, col = "gray40",
+           arrow = arrow(angle = a, type = "closed"), size = 1) +
+  annotate("text", x = 7.9, y = 1.41, col = "gray40",
+           label = "+ epsilon", parse = "true", size = 8) +
+  
+  #geom_label_repel(aes(label = label), size = 5) +
+  xlab("Number of parameters") +
+  ylab("Cost (SSD)") +
+  theme_big +
+  theme(axis.title.y = element_text(angle = 90, vjust = 0.5, size = 16))
+
+
+ggsave(out_png("model_cost_v_nparams"), model_cost_v_nparams, width = 4, height = 3)
+
+model_cost_v_nparams
+```
+
+```{r}
+reduced_aic_df_v2
+```
+
+
+## -- BREAKPOINT --
+
+## Add M candidate model labels 
+
+### Map candidate models to M labels
+
+```{r}
+model_label_map <- reduced_aic_min_df %>%
+  arrange(internalize, desc(prod_decay), mat_delay) %>%
+  mutate(label = paste0("M", row_number())) %>%
+  select(label, candidate_model) 
+
+model_label_map
+```
+
+### Insert model labels in simulation data frames
+
+```{r}
+pulsechase_sims_labeled <- pulsechase_sims %>%
+  filter(candidate_model %in% reduced_models) %>%
+  mutate(candidate_model = factor(candidate_model)) %>%
+  left_join(model_label_map) %>%
+  select(label, everything())
+
+constitutive_sims_labeled <- constitutive_sims %>%
+  filter(candidate_model %in% reduced_models) %>%
+  mutate(candidate_model = factor(candidate_model)) %>%
+  left_join(model_label_map) %>%
+  select(label, everything())
+```
+
+## Time courses with experimental data
+
+### Add fill color columns to experimental data
+
+```{r}
+jung <- jung %>%
+  mutate(fill_col = factor("Jung", levels = c("Jung", "Kinghorn", "Hornig")))
+
+kinghorn <- kinghorn %>%
+  mutate(fill_col = factor("Kinghorn", levels = c("Jung", "Kinghorn", "Hornig")))
+
+hornig <- hornig %>%
+  mutate(fill_col = factor("Hornig", levels = c("Jung", "Kinghorn", "Hornig")))
+```
+
+### Jung X
+
+```{r}
+jung_plot_X_frac_timecourse <- function(df){
+  df %>%
+    ggplot(aes(t, X_frac)) +
+    annotate("rect", xmin = -20/60, xmax = 0, ymin = -Inf, ymax = Inf, fill = cb_pal[6]) +
+    #annotate("rect", xmin = 0, xmax = Inf, ymin = -Inf, ymax = Inf, fill = cb_pal[6]) +
+    geom_line(aes(group = run), alpha = 0.1, size = 1) +
+        geom_vline(xintercept = 0) +
+    geom_vline(xintercept = -20/60) +
+    #annotate("text", x = -0.75, y = 0.55, label = "Start pulse", angle = 90, size = 6) +
+    #annotate("text", x = 0.35, y = 0.75, label = "Start chase", angle = 90, size = 6) +
+    annotate("segment", x = -0.7, xend = -0.17, y = 1.05, yend = 0.65, size = 0.5) +
+    annotate("segment", x = 0.05, xend = 9.95, y = 1.14, yend = 1.14, 
+             lty = 2, size = 0.5) +
+    annotate("rect", xmin = 1.5, xmax = 4.5, ymin = 1.13, ymax = 1.17, fill = "white", color = "white") +
+    annotate("text", x = -0.65, y = 1.15, label = "P", size = 5.5, angle = 0, fontface = "bold") +
+    annotate("text", x = 3, y = 1.15, label = "chase", size = 5.5, angle = 0, fontface = "bold") +
+    geom_point(data = jung, aes(time, media_frac_max, fill = fill_col),
+               size = 5, shape = 21, color = "white",
+               show.legend = TRUE) +
+    scale_fill_manual(labels = c("Jung", "Kinghorn", "Hornig"),
+                    values = c(cb_pal[5], cb_pal[2], cb_pal[7]), drop = FALSE) +  
+    labs(fill = "Experimental data") +    
+    scale_y_continuous(limits = c(-0.05, 1.2), breaks = seq(0, 1, by = 0.25)) +
+    scale_x_continuous(limits = c(-1, 10), breaks = seq(0, 10, by = 2), expand = c(0,0)) +
+    #scale_color_viridis_b() +
+    xlab("Time (h)") +
+    ylab(TeX(r'($\frac{X}{X_{8h}}$)')) +
+
+    #ylab("X (Normalized to 8h)") +
+    theme_big
+}
+
+pulsechase_X_tc_grid <- pulsechase_sims_labeled %>%
+  jung_plot_X_frac_timecourse() +
+  facet_wrap(~label, ncol = 2) +
+  theme(legend.position = "none")
+
+pulsechase_X_tc_grid
+
+ggsave(out_png("time_courses/pulsechase_X_tc_grid"),
+       pulsechase_X_tc_grid, width = 6, height = 8)
+```
+
+
+#### Alternate plot approach using patchwork
+
+```{r eval=FALSE}
+# alternate approach using patchwork - NOT CURRENTLY USED
+plot_list <- lapply(1:8, function(x){
+  
+  # define model version to analyze
+  model_label <- paste0("M", x)
+  
+  # plot sim v expt for all sims of that model version
+  gg <- pulsechase_sims_labeled %>%
+    filter(label == model_label) %>%
+    jung_plot_X_frac_timecourse() +
+    ggtitle(model_label) +
+    theme(legend.position = "none")
+
+  #save plot
+  ggsave(out_png(paste0("time_courses/jung_opt_X_timecourse_big_", model_label)),
+         gg, width = 4, height = 3)
+  
+  gg
+})
+
+wrap_plots(plot_list, ncol = 2)
+```
+
+### Jung I
+
+```{r}
+jung_plot_I_fc_timecourse <- function(df){
+  df %>%
+    ggplot(aes(t, I_fc)) +
+    annotate("rect", xmin = -20/60, xmax = 0, ymin = -Inf, ymax = Inf, fill = cb_pal[6]) +
+    geom_line(aes(group = run), alpha = 0.1, size = 1) +
+        geom_vline(xintercept = 0) +
+    geom_vline(xintercept = -20/60) +
+    annotate("segment", x = -0.6, xend = -0.1, y = 1.5, yend = 1.3, size = 0.5) +
+    annotate("segment", x = 0.05, xend = 9.95, y = 1.5, yend = 1.5, lty = 2, size = 0.5) +
+    annotate("rect", xmin = 5.5, xmax = 8.5, ymin = 1.45, ymax = 1.55, fill = "white", color = "white") +
+    annotate("text", x = -0.65, y = 1.6, label = "P", size = 5.5, angle = 0, fontface = "bold") +
+    annotate("text", x = 6.9, y = 1.5, label = "chase", size = 5.5, angle = 0, fontface = "bold") +
+    geom_point(data = jung, aes(time, lysate_fc, fill = fill_col),
+               size = 5, shape = 21, color = "white", show.legend = TRUE) +
+    scale_fill_manual(labels = c("Jung", "Kinghorn", "Hornig"),
+                    values = c(cb_pal[5], cb_pal[2], cb_pal[7]), drop = FALSE) +  
+  labs(fill = "Experimental data") +
+    xlab("Time (h)") +
+    ylab(TeX(r'($\frac{I}{I_{0h}}$)')) +
+    scale_y_continuous(limits = c(-0.05, 1.7), breaks = seq(0, 1.5, by = 0.5)) +
+    scale_x_continuous(limits = c(-1, 10), breaks = seq(0, 10, by = 2), expand = c(0,0)) +
+    theme_big}
+
+pulsechase_I_tc_grid <- pulsechase_sims_labeled %>%
+  jung_plot_I_fc_timecourse() +
+  facet_wrap(~label, ncol = 2) +
+  theme(legend.position = "none")
+
+pulsechase_I_tc_grid
+
+ggsave(out_png("time_courses/pulsechase_I_tc_grid"),
+       pulsechase_I_tc_grid, width = 6, height = 8)
+```
+
+### Kinghorn X
+
+All optimized parameter sets produce an identical extracellular time course.
+
+```{r}
+kinghorn_opt_X_timecourse <- constitutive_sims_labeled %>%
+    ggplot(aes(t, X_frac)) +
+    geom_line(aes(group = run), size = 1, alpha = 0.25) +
+    geom_point(data = kinghorn, aes(time, X_frac_24h, fill = fill_col), size = 5, 
+               shape = 21, color = "white") +
+    scale_fill_manual(labels = c("Jung", "Kinghorn", "Hornig"),
+                    values = c(cb_pal[5], cb_pal[2], cb_pal[7]), drop = FALSE) +  
+    labs(fill = "Experimental data") +
+    xlab("Time (h)") +
+    ylab(TeX(r'($\frac{X}{X_{24h}}$)')) +
+    facet_wrap(~label, ncol = 2) +
+    theme_big
+
+kinghorn_opt_X_timecourse_nolegend <- kinghorn_opt_X_timecourse +
+  theme(legend.position = "none")
+
+# save plot
+ggsave(out_png("time_courses/kinghorn_opt_X_timecourse_big"),
+       kinghorn_opt_X_timecourse, width = 6, height = 8)
+
+# save plot
+ggsave(out_png("time_courses/kinghorn_opt_X_timecourse_big_nolegend"),
+       kinghorn_opt_X_timecourse_nolegend, width = 6, height = 8)
+
+kinghorn_opt_X_timecourse
+```
+
+### Kinghorn I
+
+In constitutive simulations, I remains at steady state for the entire experimentally observed period.
+
+```{r}
+kinghorn_opt_I_timecourse <- constitutive_sims_labeled %>%
+  ggplot(aes(t, I_fc)) +
+    geom_line(aes(group = run), size = 1, alpha = 0.25) +
+  geom_point(data = kinghorn, aes(time, I_fc_0h, fill = fill_col), size = 5, 
+               shape = 21, color = "white") +
+  scale_fill_manual(labels = c("Jung", "Kinghorn", "Hornig"),
+                    values = c(cb_pal[5], cb_pal[2], cb_pal[7]), drop = FALSE) +  
+  labs(fill = "Experimental data") +
+  xlab("Time (h)") +
+    ylab(TeX(r'($\frac{I}{I_{0h}}$)')) +
+    ylim(c(0, 1.5)) +
+  facet_wrap(~label, ncol = 2) +
+    theme_big
+
+# save plot
+ggsave(out_png("time_courses/kinghorn_opt_I_timecourse"),
+       kinghorn_opt_I_timecourse, width = 6, height = 8)
+
+kinghorn_opt_I_timecourse
+```
+
+
+### Hornig X
+
+```{r}
+hornig_plot_X_timecourse_numcell <- function(df){
+  df %>%
+    ggplot(aes(t, X / conv_factor_numcell_to_ngml)) +
+    geom_line(aes(group = run), size = 1, alpha = 0.25) +
+    geom_point(data = hornig, aes(nominal_time, X_numcell, fill = fill_col), size = 5, 
+               shape = 21, color = "white") +
+    scale_fill_manual(labels = c("Jung", "Kinghorn", "Hornig"),
+                    values = c(cb_pal[5], cb_pal[2], cb_pal[7]), drop = FALSE) +  
+  labs(fill = "Experimental data") +
+    xlab("Time (h)") +
+    ylab("X\n(#/cell)") +
+    theme_paper +
+    scale_x_continuous(breaks = seq(0, 72, by = 24))
+}
+
+hornig_opt_X_timecourse_numcell <- hornig_plot_X_timecourse_numcell(constitutive_sims_labeled) +
+  facet_wrap(~label, ncol = 2) #+
+  #ggtitle("Hornig extracellular sFLT1 (X) - All fits")
+
+hornig_opt_X_timecourse_numcell_nolegend <- hornig_opt_X_timecourse_numcell +
+  theme_paper +
+  theme(legend.position = "none")
+
+ggsave(out_png("time_courses/hornig_opt_X_timecourse_numcell_nolegend"),
+       hornig_opt_X_timecourse_numcell_nolegend, width = 6, height = 8)
+
+hornig_opt_X_timecourse_numcell_nolegend
+```
+
+The simulations track well with the data through 48h, but the 72h point is not well fit.
+
+### Constitutive combo X
+
+```{r}
+const_opt_X_timecourse_combo <- constitutive_sims_labeled %>%
+    ggplot(aes(t, X / X_24)) +
+    geom_line(aes(group = run), size = 1, alpha = 0.25) +
+    geom_point(data = hornig, aes(nominal_time, X_norm_24, fill = fill_col), 
+               size = 5, shape = 21, color = "white") +
+#    geom_line(data = hornig, aes(nominal_time, X_norm_24), linewidth = 1, color = cb_pal[2]) 
+  geom_point(data = kinghorn, aes(time, X_frac_24h, fill = fill_col), 
+             size = 5, shape = 21, color = "white", show.legend = FALSE) +
+#  geom_line(data = kinghorn, aes(time, X_frac_24h), linewidth = 1, color = cb_pal[7]) +
+  scale_fill_manual(labels = c("Jung", "Kinghorn", "Hornig"),
+                    values = c(cb_pal[5], cb_pal[2], cb_pal[7]), drop = FALSE) +  
+  labs(fill = "Experimental data") +
+  xlab("Time (h)") +
+    theme_big +
+  facet_wrap(~label, ncol = 2) +
+    scale_x_continuous(breaks = seq(0, 72, by = 24)) +
+  scale_y_continuous(name = TeX(r'($\frac{X}{X_{24h}}$)'),
+                     sec.axis = sec_axis(trans = ~.*hornig_X_numcell_24,
+                                         name = "X\n(#/cell)")) +
+  theme_paper +
+  theme(axis.title.y.right = element_text(angle = 0, vjust = 0.5, size = 16))
+
+ggsave(out_png("time_courses/const_opt_X_timecourse_combo_big"),
+       const_opt_X_timecourse_combo, width = 6, height = 8)
+
+const_opt_X_timecourse_combo
+```
+
+### Combined figure
+
+```{r}
+p1 <- pulsechase_X_tc_grid
+p2 <- pulsechase_I_tc_grid
+p3 <- const_opt_X_timecourse_combo
+p4 <- kinghorn_opt_I_timecourse
+
+candidate_combo_plot <- (p1 + p3) / (p2 + p4) +
+  plot_layout(guides = "collect") +
+  plot_annotation(tag_levels = "A") &
+  theme(plot.title = element_blank(), 
+        legend.position = "bottom",
+        axis.title.x = element_text(size = 20),
+        axis.title.y = element_text(angle = 0, vjust = 0.5, size = 20),
+        axis.title.y.right = element_text(angle = 0, vjust = 0.5, size = 20),
+        axis.text = element_text(size = 14),
+        legend.title = element_text(size = 18, face = "bold"),
+        legend.text = element_text(size = 18)) 
+
+ggsave(out_png("time_courses/candidate_combo_plot"),
+       candidate_combo_plot, width = 12, height = 16)
+
+candidate_combo_plot
+```
+

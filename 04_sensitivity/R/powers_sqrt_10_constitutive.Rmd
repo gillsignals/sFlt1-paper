@@ -1,0 +1,1248 @@
+---
+title: "sFLT1 modeling global sensitivity analysis - Orders of magnitude in base parameters"
+author: "Amy Gill"
+date: "2023-05-04"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## REVIEWED
+
+This file imports data from sensitivity analysis of extracellular sFLT1 (X) and intracellular sFLT1 (I) at 18h and 72h performed 1/15/24 using the Matlab script "sFlt-model/dde_model/sens_analysis.m" with options:
+- run_mode = "sens_logscale_sqrt10"
+- genetic_chemical = "genetic"
+- param_set = "hjk_opt_median_230821"
+
+## Setup
+
+### Common setup
+
+```{r}
+# load packages, define helper functions, define color palettes, load experimental data
+source("../../helper_scripts/setup.R")
+```
+
+### Set output file
+
+```{r}
+# define folder where output will be saved (for example, png images from ggsave)
+outfile_prefix = "../../../saved-figs/04_sensitivity/powers_sqrt_10/"
+dir.create(outfile_prefix, recursive = TRUE)
+```
+
+## Load and wrangle files
+
+### Simulation input file
+
+```{r}
+# import file of input parameters
+param_file <- readMat("../../../saved-data/04_sensitivity/powers_sqrt_10/input.mat")
+
+# inspect available variables
+names(param_file)
+```
+
+### Simulation output file
+
+```{r}
+# import file 
+alt_file <- readMat("../../../saved-data/04_sensitivity/powers_sqrt_10/sens_logscale_sqrt10_genetic.mat")
+
+# inspect available variables
+names(alt_file)
+```
+
+### Species names and parameter names
+
+```{r}
+# extract species names
+species_names <- str_replace(names(param_file$sp[,,1]), "\\.", "_")
+param_names <- unlist(alt_file$param.names)
+```
+
+### Extract outputs to list
+
+```{r}
+alt_file_outlist <- alt_file$out[,,1]
+names(alt_file_outlist) <- str_replace_all(names(alt_file_outlist), "\\.", "_")
+names(alt_file_outlist)
+```
+```{r}
+names(alt_file)
+```
+
+
+
+### Extract time points
+
+```{r}
+time_vec <- alt_file$sim.time[1,]
+```
+
+### Extract baseline time courses for X, I
+
+```{r}
+base_df <- data.frame(t = time_vec,
+                      X = alt_file$base.sim.y[which(species_names == "X"),],
+                      I = alt_file$base.sim.y[which(species_names == "I"),],
+                      param_altered = "none")
+
+base_df
+```
+
+### Extract time courses
+
+```{r}
+# format data frames of simulated species values for time courses
+make_sim_Y_df <- function(Y_mat){
+  
+  # flatten matrix to data frame of time course data
+  # (this isn't very "R-style", but it works, so tell Hadley to chill)
+  for (i in 1:dim(Y_mat)[3]) {
+    if (i == 1) {    # first run: initialize output data frame
+      # extract matrix for first parameter set to a data frame
+      Y_temp <- as.data.frame(Y_mat[,,1])
+      names(Y_temp) <- species_names
+      Y_temp$run_y <- 1
+        
+      # initialize full Y data frame to the time course from this first run
+      Y_df <- Y_temp
+      
+    } else {    # later runs: append to data frame
+      Y_temp <- as.data.frame(Y_mat[,,i])
+      names(Y_temp) <- species_names
+      Y_temp$run_y <- i
+      Y_df <- rbind(Y_df, Y_temp)
+    }
+  }
+  
+  Y_df
+  
+}
+
+# extract simulated time courses
+Y_df <- make_sim_Y_df(alt_file$Y.all)
+```
+
+```{r}
+Y_df
+```
+
+```{r}
+num_params <- length(param_names)
+num_factors <- length(alt_file$factors.to.try)
+num_runs <- num_params * num_factors
+
+Y_df <- Y_df %>%
+  mutate(t = rep(time_vec, num_runs)) %>%
+  select(t, run = run_y, everything())
+
+Y_df 
+```
+
+### Extract parameter values
+
+```{r}
+# initial parameter values
+param_file$p.init
+```
+
+```{r}
+param_val_df <- as.data.frame(t(alt_file$p.mod.all))
+
+names(param_val_df) <- param_names
+
+param_val_df$run <- 1:nrow(param_val_df)
+
+param_val_df
+```
+
+
+### Extract parameter alteration metadata
+
+```{r}
+# extract parameter altered
+param_altered <- unlist(lapply(1:length(param_names), function(x){
+  rep(param_names[x],9)
+}))
+
+# extract inhibition fraction
+param_meta_df <- data.frame(run = as.numeric(1:num_runs),
+                           param_altered = factor(param_altered,
+                                                  levels = c("alpha", "beta", "gamma",
+                                                             "delta", "tau")), 
+                           scaling_numeric = rep(alt_file$factors.to.try, num_params)) %>%
+  mutate(scaling_factor = factor(round(scaling_numeric, 3))) %>%
+  left_join(param_val_df, by = "run") %>%
+  mutate(ab = alpha*beta,
+         bpg = beta + gamma,
+         I_bar_calc = alpha / bpg,
+         X_bar_calc = ab / (delta * bpg))
+
+param_meta_df
+```
+
+### Merge time course data and metadata
+
+```{r}
+Y_df <- Y_df %>%
+  left_join(param_meta_df)
+```
+
+```{r}
+Y_df
+```
+
+
+### Extract 72h values from time courses
+
+```{r}
+# all species at 72h in all conditions
+Y_72h <- Y_df %>%
+  filter(t == 72)
+
+# baseline X at 18h
+X0_72h <- base_df %>%
+  filter(t == 72) %>%
+  pull(X)
+
+# baseline I at 18h
+I0_72h <- base_df %>%
+  filter(t == 72) %>%
+  pull(I)
+
+# calculate X,I normalized to baseline 18h
+Y_72h <- Y_72h %>%
+  mutate(X_norm = X / X0_72h,
+         I_norm = I / I0_72h)
+
+Y_72h
+```
+
+### Extract 18h values from time courses
+
+```{r}
+# all species at 18h in all conditions
+Y_18h <- Y_df %>%
+  filter(t == 18)
+
+# baseline X at 18h
+X0_18h <- base_df %>%
+  filter(t == 18) %>%
+  pull(X)
+
+# baseline I at 18h
+I0_18h <- base_df %>%
+  filter(t == 18) %>%
+  pull(I)
+
+# calculate X,I normalized to baseline 18h
+Y_18h <- Y_18h %>%
+  mutate(X_norm = X / X0_18h,
+         I_norm = I / I0_18h)
+
+Y_18h
+```
+
+### Extract 0h values from time courses
+
+```{r}
+# all species at 18h in all conditions
+Y_0h <- Y_df %>%
+  filter(t == 0)
+
+# baseline X at 18h
+X0_0h <- base_df %>%
+  filter(t == 0) %>%
+  pull(X)
+
+# baseline I at 18h
+I0_0h <- base_df %>%
+  filter(t == 0) %>%
+  pull(I)
+
+# calculate X,I normalized to baseline 18h
+Y_0h <- Y_0h %>%
+  mutate(X_norm = X / X0_0h,
+         I_norm = I / I0_0h)
+
+Y_0h
+```
+
+### Hornig experimental data
+
+```{r}
+# load experimental data from Hornig
+load("../../../saved-data/hornig.rda")
+
+hornig_basal <- hornig %>%
+  filter(condition == "basal") %>%
+  select(t = nominal_time, X = Sx_ng_ml)
+
+hornig_basal
+```
+
+
+
+
+
+## Base plots
+
+### Base X
+
+```{r}
+base_df %>%
+  ggplot(aes(t, X)) +
+  geom_line() +
+  xlab("Time (h)") +
+  ylab("Extracellular sFLT1 (X, ng/mL)") +
+  theme1
+```
+
+```{r}
+X_norm_val_72 <- base_df %>%
+  filter(t == 72) %>%
+  pull(X)
+
+X_norm_val_72  # ng/mL
+```
+
+
+### Base I
+
+```{r}
+base_df %>%
+  ggplot(aes(t, I)) +
+  geom_line() +
+  xlab("Time (h)") +
+  ylab("Intracellular sFLT1 (I, #/cell)") +
+  ylim(c(0, 1e6)) +
+  theme1
+```
+
+```{r}
+I_norm_val_72 <- base_df %>%
+  filter(t == 72) %>%
+  pull(I)
+
+I_norm_val_72  # #/cell
+```
+
+### Plot X time course colored by scaling factor
+
+#### Faceted in 2 rows
+
+```{r}
+X_facet_scale_sqrt10 <- Y_df %>%
+  ggplot(aes(t, X, color = scaling_factor)) +
+  geom_line(size = 1) +
+  facet_wrap(~ param_altered, scales = "free", labeller = label_parsed) +
+  ylab("X (ng/mL)") +
+  xlab("Time (h)") +
+  scale_x_continuous(breaks = seq(0, 72, by = 24)) +
+  scale_color_manual(values = viridis(9)) +
+  labs(color = "Scaling\nfactor") +
+  theme_paper +
+  theme(legend.position = "right")
+
+# save plot
+ggsave(out_png("X_facet_scale_sqrt10"),
+       X_facet_scale_sqrt10, width = 8, height = 4)
+
+X_facet_scale_sqrt10
+```
+
+#### Faceted in 1 row
+
+```{r}
+X_facet_scale_sqrt10_1row <- Y_df %>%
+  ggplot(aes(t, X, color = scaling_factor)) +
+  geom_line(size = 1) +
+  facet_wrap(~ param_altered, scales = "free", labeller = label_parsed, nrow = 1) +
+  ylab("X (ng/mL)") +
+  xlab("Time (h)") +
+  scale_x_continuous(breaks = seq(0, 72, by = 24)) +
+  scale_color_manual(values = viridis(9)) +
+  labs(color = "Scaling\nfactor") +
+  theme_paper +
+  theme(legend.position = "right")
+
+# save plot
+ggsave(out_png("X_facet_scale_sqrt10_1row"),
+       X_facet_scale_sqrt10_1row, width = 16, height = 3)
+
+X_facet_scale_sqrt10_1row
+```
+
+
+#### Grid (forces same y scale)
+
+```{r}
+X_facet_scale_sqrt10_1row_samescale <- Y_df %>%
+  ggplot(aes(t, X, color = scaling_factor)) +
+  geom_line(size = 1) +
+  facet_grid(. ~ param_altered, labeller = label_parsed) +
+  ylab("X (ng/mL)") +
+  xlab("Time (h)") +
+  scale_x_continuous(breaks = seq(0, 72, by = 24)) +
+  scale_color_manual(values = viridis(9)) +
+  labs(color = "Scaling\nfactor") +
+  theme_paper +
+  theme(legend.position = "right")
+
+# save plot
+ggsave(out_png("X_facet_scale_sqrt10_1row_samescale"),
+       X_facet_scale_sqrt10_1row_samescale, width = 16, height = 3)
+
+X_facet_scale_sqrt10_1row_samescale
+```
+
+#### Grid with y log-scaled
+
+```{r}
+X_facet_scale_sqrt10_1row_samelog <- X_facet_scale_sqrt10_1row_samescale +
+  scale_y_log10(, labels = function(x) sprintf("%g", x))
+
+# save plot
+ggsave(out_png("X_facet_scale_sqrt10_1row_samelog"),
+       X_facet_scale_sqrt10_1row_samelog, width = 16, height = 3)
+
+X_facet_scale_sqrt10_1row_samelog
+```
+
+### X time course: beta
+
+Template for separately plotting any parameters
+
+#### Powers of sqrt(10)
+
+```{r}
+X_beta_scale_sqrt10 <- Y_df %>%
+  filter(param_altered == "beta") %>%
+  ggplot(aes(t, X, color = scaling_factor)) +
+  geom_line(size = 2) +
+  theme_paper +
+  ylab("X (ng/mL)") +
+  xlab("Time (h)") +
+  ggtitle(TeX(r'(Scaling $\beta$)')) +
+  guides(color = guide_legend(title = "Scaling\nfactor")) +
+  scale_color_manual(values = viridis(9)) +
+  theme(legend.position = "right")
+
+# save plot
+ggsave(out_png("X_beta_scale_sqrt10"),
+       X_beta_scale_sqrt10, width = 6, height = 4)
+
+X_beta_scale_sqrt10
+```
+
+#### Powers of 10
+
+```{r}
+X_beta_scale_10 <- Y_df %>%
+  filter(param_altered == "beta" & scaling_numeric %in% 10^(-2:2)) %>%
+  ggplot(aes(t, X, color = scaling_factor)) +
+  geom_line(size = 2) +
+  theme_paper +
+  ylab("X (ng/mL)") +
+  xlab("Time (h)") +
+  ggtitle(TeX(r'(Scaling $\beta$)')) +
+  guides(color = guide_legend(title = "Scaling\nfactor")) +
+  scale_color_manual(values = cb_pal) +
+  theme(legend.position = "right")
+
+# save plot
+ggsave(out_png("X_beta_scale_10"),
+       X_beta_scale_10, width = 6, height = 4)
+
+X_beta_scale_10
+```
+
+### Explore X at 72h
+
+#### Raw values: Matrix with parameter altered x scaling factor
+
+```{r}
+Y_72h
+```
+
+
+```{r}
+X_72h_df <- Y_72h %>%
+  select(param_altered, scaling_numeric, X) %>%
+  pivot_wider(names_from = param_altered, values_from = X) %>%
+  mutate(scaling_factor = factor(round(scaling_numeric, 3)))
+
+X_72h_df
+
+X_72h_mat <- as.matrix(select(X_72h_df, alpha:tau))
+
+rownames(X_72h_mat) <- X_72h_df$scaling_factor
+
+X_72h_mat
+```
+
+#### Normalized values: Matrix with parameter altered x scaling factor, div original X_72h
+
+
+```{r}
+X_72h_mat / X_norm_val_72
+```
+
+
+### X (norm) at 72h versus scaling factor
+
+#### Faceted in 2 rows
+
+```{r}
+X_72h_norm_df <- X_72h_df %>%
+  pivot_longer(alpha:tau, names_to = "param_altered", values_to = "raw_value") %>%
+  mutate(norm_value = raw_value / X0_72h,
+         param_altered = factor(param_altered, levels = c("alpha", "beta", "gamma", "delta", "tau"))) 
+
+X_72h_norm_v_scale_factor <- X_72h_norm_df %>%
+  ggplot(aes(scaling_numeric, norm_value, color = scaling_factor)) +
+  geom_point(size = 2) +
+  facet_wrap(~ param_altered, scales = "free", labeller = "label_parsed") +
+    ylab(TeX(r'($X_{72h}$ (Normalized))')) +
+  xlab("Scaling factor") +
+  scale_x_log10(breaks = c(1e-2, 1, 1e2), labels = function(x) sprintf("%g", x)) +
+  scale_color_manual(values = viridis(9)) +
+  labs(color = "Scaling\nfactor") +
+  theme_paper +
+  theme(legend.position = "right",
+        panel.spacing=unit(1.5,"lines"))
+
+# save plot
+ggsave(out_png("X_72h_norm_v_scale_factor"),
+       X_72h_norm_v_scale_factor, width = 9, height = 5)
+
+X_72h_norm_v_scale_factor
+```
+
+
+#### Faceted in 1 row
+
+```{r}
+X_72h_norm_v_scale_1row <- X_72h_norm_df %>%
+  ggplot(aes(scaling_numeric, norm_value, color = scaling_factor)) +
+  geom_point(size = 2) +
+  facet_wrap(~ param_altered, scales = "free", labeller = "label_parsed", nrow = 1) +
+    ylab(TeX(r'($X_{72h}$ (Normalized))')) +
+  xlab("Scaling factor") +
+  scale_x_log10(breaks = c(1e-2, 1, 1e2), labels = function(x) sprintf("%g", x)) +
+  scale_color_manual(values = viridis(9)) +
+  labs(color = "Scaling\nfactor") +
+  theme_paper +
+  theme(legend.position = "right",
+        panel.spacing=unit(1.5,"lines"))
+
+# save plot
+ggsave(out_png("X_72h_norm_v_scale_1row"),
+       X_72h_norm_v_scale_1row, width = 16, height = 3)
+
+X_72h_norm_v_scale_1row
+```
+
+
+#### Grid (forces same y scale)
+
+```{r}
+X_72h_norm_v_scale_1row_samescale <- X_72h_norm_df %>%
+  ggplot(aes(scaling_numeric, norm_value, color = scaling_factor)) +
+  geom_point(size = 2) +
+  facet_grid(. ~ param_altered, labeller = "label_parsed") +
+    ylab(TeX(r'($X_{72h}$ (Normalized))')) +
+  xlab("Scaling factor") +
+  scale_x_log10(breaks = c(1e-2, 1, 1e2), labels = function(x) sprintf("%g", x)) +
+  scale_color_manual(values = viridis(9)) +
+  labs(color = "Scaling\nfactor") +
+  theme_paper +
+  theme(legend.position = "right",
+        panel.spacing=unit(1.5,"lines"))
+
+# save plot
+ggsave(out_png("X_72h_norm_v_scale_1row_samescale"),
+       X_72h_norm_v_scale_1row_samescale, width = 16, height = 3)
+
+X_72h_norm_v_scale_1row_samescale
+```
+
+#### Grid with y log-scaled
+
+```{r}
+X_72h_norm_v_scale_1row_samelog <- X_72h_norm_v_scale_1row_samescale +
+  scale_y_log10(, labels = function(x) sprintf("%g", x))
+
+# save plot
+ggsave(out_png("X_72h_norm_v_scale_1row_samelog"),
+       X_72h_norm_v_scale_1row_samelog, width = 16, height = 3)
+
+X_72h_norm_v_scale_1row_samelog
+```
+
+## NEW 2024-01-16
+
+### Plot I time course (show steady state)
+
+#### Faceted in 2 rows
+
+```{r}
+I_facet_scale_sqrt10 <- Y_df %>%
+  ggplot(aes(t, I, color = scaling_factor)) +
+  geom_line(size = 1) +
+  facet_wrap(~ param_altered, scales = "free", labeller = label_parsed) +
+  ylab("I (#/cell)") +
+  xlab("Time (h)") +
+  scale_x_continuous(breaks = seq(0, 72, by = 24)) +
+  scale_color_manual(values = viridis(9)) +
+  labs(color = "Scaling\nfactor") +
+  theme_paper +
+  theme(legend.position = "right")
+
+# save plot
+ggsave(out_png("I_facet_scale_sqrt10"),
+       I_facet_scale_sqrt10, width = 8, height = 4)
+
+I_facet_scale_sqrt10
+```
+
+#### Faceted in 1 row
+
+```{r}
+I_facet_scale_sqrt10_1row <- Y_df %>%
+  ggplot(aes(t, I, color = scaling_factor)) +
+  geom_line(size = 1) +
+  facet_wrap(~ param_altered, scales = "free", labeller = label_parsed, nrow = 1) +
+  ylab("I (#/cell)") +
+  xlab("Time (h)") +
+  scale_x_continuous(breaks = seq(0, 72, by = 24)) +
+  scale_color_manual(values = viridis(9)) +
+  labs(color = "Scaling\nfactor") +
+  theme_paper +
+  theme(legend.position = "right")
+
+# save plot
+ggsave(out_png("I_facet_scale_sqrt10_1row"),
+       I_facet_scale_sqrt10_1row, width = 16, height = 3)
+
+I_facet_scale_sqrt10_1row
+```
+
+
+#### Grid (forces same y scale)
+
+```{r}
+I_facet_scale_sqrt10_1row_samescale <- Y_df %>%
+  ggplot(aes(t, I, color = scaling_factor)) +
+  geom_line(size = 1) +
+  facet_grid(. ~ param_altered, labeller = label_parsed) +
+  ylab("I (#/cell)") +
+  xlab("Time (h)") +
+  scale_x_continuous(breaks = seq(0, 72, by = 24)) +
+  scale_color_manual(values = viridis(9)) +
+  labs(color = "Scaling\nfactor") +
+  theme_paper +
+  theme(legend.position = "right")
+
+# save plot
+ggsave(out_png("I_facet_scale_sqrt10_1row_samescale"),
+       I_facet_scale_sqrt10_1row_samescale, width = 16, height = 3)
+
+I_facet_scale_sqrt10_1row_samescale
+```
+
+#### Grid with y log-scaled
+
+```{r}
+I_facet_scale_sqrt10_1row_samelog <- I_facet_scale_sqrt10_1row_samescale +
+  scale_y_log10(, labels = function(x) sprintf("%g", x))
+
+# save plot
+ggsave(out_png("I_facet_scale_sqrt10_1row_samelog"),
+       I_facet_scale_sqrt10_1row_samelog, width = 16, height = 3)
+
+I_facet_scale_sqrt10_1row_samelog
+```
+
+
+
+#### I at 72h (steady state)
+
+```{r}
+I_72h_df <- Y_72h %>%
+  select(param_altered, scaling_factor, I, scaling_numeric) %>%
+  pivot_wider(names_from = param_altered, values_from = I)
+
+I_72h_mat <- as.matrix(select(I_72h_df, alpha:tau))
+
+rownames(I_72h_mat) <- I_72h_df$scaling_factor
+
+I_72h_df
+```
+
+#### Normalized values
+
+```{r}
+I_72h_norm_df <- I_72h_df %>%
+  pivot_longer(alpha:tau, names_to = "param_altered", values_to = "raw_value") %>%
+  mutate(norm_value = raw_value / I0_72h,
+         param_altered = factor(param_altered, levels = c("alpha", "beta", "gamma", "delta", "tau"))) 
+
+I_72h_norm_df
+```
+
+
+### I (norm) at 72h (ss) versus scaling factor
+
+#### Faceted in 2 rows
+
+```{r}
+I_72h_norm_v_scale_factor <- I_72h_norm_df %>%
+  ggplot(aes(scaling_numeric, norm_value, color = scaling_factor)) +
+  geom_point(size = 2) +
+  facet_wrap(~ param_altered, scales = "free", labeller = "label_parsed") +
+    ylab(TeX(r'($I_{SS}$ (Normalized))')) +
+  xlab("Scaling factor") +
+  scale_x_log10(breaks = c(1e-2, 1, 1e2), labels = function(x) sprintf("%g", x)) +
+  scale_color_manual(values = viridis(9)) +
+  labs(color = "Scaling\nfactor") +
+  theme_paper +
+  theme(legend.position = "right",
+        panel.spacing=unit(1.5,"lines"))
+
+# save plot
+ggsave(out_png("I_72h_norm_v_scale_factor"),
+       I_72h_norm_v_scale_factor, width = 9, height = 5)
+
+I_72h_norm_v_scale_factor
+```
+
+
+#### Faceted in 1 row
+
+```{r}
+I_72h_norm_v_scale_1row <- I_72h_norm_df %>%
+  ggplot(aes(scaling_numeric, norm_value, color = scaling_factor)) +
+  geom_point(size = 2) +
+  facet_wrap(~ param_altered, scales = "free", labeller = "label_parsed", nrow = 1) +
+    ylab(TeX(r'($I_{SS}$ (Normalized))')) +
+  xlab("Scaling factor") +
+  scale_x_log10(breaks = c(1e-2, 1, 1e2), labels = function(x) sprintf("%g", x)) +
+  scale_color_manual(values = viridis(9)) +
+  labs(color = "Scaling\nfactor") +
+  theme_paper +
+  theme(legend.position = "right",
+        panel.spacing=unit(1.5,"lines"))
+
+# save plot
+ggsave(out_png("I_72h_norm_v_scale_1row"),
+       I_72h_norm_v_scale_1row, width = 16, height = 3)
+
+I_72h_norm_v_scale_1row
+```
+
+
+#### Grid (forces same y scale)
+
+```{r}
+I_72h_norm_v_scale_1row_samescale <- I_72h_norm_df %>%
+  ggplot(aes(scaling_numeric, norm_value, color = scaling_factor)) +
+  geom_point(size = 2) +
+  facet_grid(. ~ param_altered, labeller = "label_parsed") +
+    ylab(TeX(r'($I_{SS}$ (Normalized))')) +
+  xlab("Scaling factor") +
+  scale_x_log10(breaks = c(1e-2, 1, 1e2), labels = function(x) sprintf("%g", x)) +
+  scale_color_manual(values = viridis(9)) +
+  labs(color = "Scaling\nfactor") +
+  theme_paper +
+  theme(legend.position = "right",
+        panel.spacing=unit(1.5,"lines"))
+
+# save plot
+ggsave(out_png("I_72h_norm_v_scale_1row_samescale"),
+       I_72h_norm_v_scale_1row_samescale, width = 16, height = 3)
+
+I_72h_norm_v_scale_1row_samescale
+```
+
+#### Grid with y log-scaled
+
+```{r}
+I_72h_norm_v_scale_1row_samelog <- I_72h_norm_v_scale_1row_samescale +
+  scale_y_log10(, labels = function(x) sprintf("%g", x))
+
+# save plot
+ggsave(out_png("I_72h_norm_v_scale_1row_samelog"),
+       I_72h_norm_v_scale_1row_samelog, width = 16, height = 3)
+
+I_72h_norm_v_scale_1row_samelog
+```
+
+
+
+
+## NOT REVIEWED
+
+
+
+## -- WORKSPACE 5/18 --
+
+
+
+
+### Heatmap v1 (x = parameter adjusted, y = scaling factor, color = X (ng/mL))
+
+
+```{r}
+Heatmap(X_72h_mat,
+        heatmap_height = unit(4, "in"),
+        heatmap_width = unit(4, "in"),
+        column_names_gp = gpar(fontsize = 24),
+        row_names_gp = gpar(fontsize = 14),
+        cluster_columns = FALSE,
+        cluster_rows = FALSE,
+        column_names_rot = 0,
+        column_names_side = "top",
+        column_labels = expression(alpha, beta, gamma, delta, tau),
+        rect_gp = gpar(col = "black", lwd = 2),
+        col = viridis(10))
+```
+
+
+
+
+
+
+
+
+
+
+
+### Heatmap v2 (x = parameter adjusted, y = scaling factor, color = X_norm (fold change from baseline parameter values)))
+
+```{r}
+X_norm_72h_df <- Y_72h %>%
+  select(param_altered, scaling_factor, X_norm) %>%
+  pivot_wider(names_from = param_altered, values_from = X_norm)
+
+X_norm_72h_mat <- as.matrix(X_norm_72h_df[,-1])
+
+rownames(X_norm_72h_mat) <- X_norm_72h_df$scaling_factor
+
+X_norm_72h_mat
+```
+
+
+
+```{r}
+Y_72h
+```
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+local_sens_heatmap_v1 <- Heatmap(sens_mat,
+                              heatmap_height = unit(4, "in"),
+                              heatmap_width = unit(4, "in"),
+                              heatmap_legend_param = list(
+                                title = "Relative Sensitivity",
+                                direction = "horizontal",
+                                title_position = "topcenter",
+                                title_gp = gpar(fontsize = 18),
+                                #grid_height = unit(0.5, "in"),
+                                legend_width = unit(2.25, "in")
+                              ),
+                              cluster_columns = FALSE,
+                              column_names_rot = 0,
+                              #column_names_side = "top",
+                              column_labels = expression(alpha, beta, gamma, delta, tau),
+                              column_names_gp = gpar(fontsize = 18),
+                              row_names_gp = gpar(fontsize = 14),
+                              row_labels = c("X at 72h", "I at 72h", 
+                                             TeX(r'(${AUC}_{72h}$ for X)'), 
+                                             TeX(r'(${AUC}_{72h}$ for I)'), 
+                                             TeX(r'($\bar{I}$)'),
+                                             TeX(r'($\bar{X}$)'),
+                                             TeX(r'($T_{50}$ to $\bar{X}$)')),
+                              col = pg_color_func,
+                              rect_gp = gpar(col = "black", lwd = 2))
+
+#local_sens_heatmap
+
+draw(local_sens_heatmap_v1, heatmap_legend_side = "top")
+
+```
+
+##
+
+
+## --STORAGE--
+
+## 72h plots: fraction of initial amount 
+
+### abgd, facet grid, X and I
+
+
+```{r}
+Y_72h
+```
+
+
+```{r}
+Y_72h %>%
+  filter(param_altered == "alpha") %>%
+  pivot_longer(cols = c(X_norm, I_norm),
+               names_to = "species", values_to = "amount")
+```
+
+
+
+
+
+
+```{r}
+inhfrac_abgd_xi_grid_72h <- Y_72h %>%
+  filter(!param_altered %in% c("kappa", "tau")) %>%
+  mutate(param_color = case_when(param_altered == "alpha" ~ param_pal_list$alpha,
+                                 param_altered == "beta" ~ param_pal_list$beta,
+                                 param_altered == "gamma" ~ param_pal_list$gamma,
+                                 param_altered == "delta" ~ param_pal_list$delta)) %>%
+  pivot_longer(cols = c(X_norm, I_norm),
+               names_to = "species", values_to = "amount") %>%
+  mutate(species = ifelse(species == "X_norm", "X", "I")) %>%
+  #mutate(species = ifelse(species == "X_norm", "X", "I")) %>%
+  ggplot(aes(scaling_factor, amount, color = param_altered)) +
+  geom_point(size = 2) +
+  facet_grid(species ~ param_altered, scales = "free", labeller = label_parsed) +
+  xlab("Fraction inhibition") +
+  ylab("Normalized sFLT1") +
+  theme1 +
+  scale_color_manual(values = unlist(param_pal)) +
+  theme(legend.position = "none")
+  
+inhfrac_abgd_xi_grid_72h
+```
+
+```{r}
+# save plot
+ggsave(out_png("inhfrac_abgd_xi_grid_72h"),
+       inhfrac_abgd_xi_grid_72h, width = 12, height = 6)
+```
+
+### abgd, shared axes, X and I
+
+```{r}
+inhfrac_abgd_xi_shared_72h <- Y_72h %>%
+  filter(!param_altered %in% c("kappa", "tau")) %>%
+  pivot_longer(cols = c(X_norm, I_norm),
+               names_to = "species", values_to = "amount") %>%
+  mutate(species = ifelse(species == "X_norm", "Extracellular (X)", "Intracellular (I)")) %>%
+  #mutate(species = ifelse(species == "X_norm", "X", "I")) %>%
+  ggplot(aes(inh_frac, amount, col = param_altered)) +
+  geom_line(size = 2) +
+  facet_wrap(~ species) +
+  xlab("Fraction inhibition") +
+  ylab("Normalized sFLT1") +
+  theme1 +
+  scale_color_manual(values = unlist(param_pal), label = color_labels) +
+  theme(legend.position = "bottom") +
+  guides(color = guide_legend(title = "Parameter inhibited"))
+
+inhfrac_abgd_xi_shared_72h
+```
+
+```{r}
+# save plot
+ggsave(out_png("inhfrac_abgd_xi_shared_72h"),
+       inhfrac_abgd_xi_shared_72h, width = 8, height = 4)
+```
+
+
+## 18h plots: fraction of initial amount 
+
+### All params, faceted, X only
+
+```{r}
+Y_18h %>%
+  ggplot(aes(inh_frac, X_norm)) +
+  geom_point() +
+  facet_wrap(~param_altered) +
+  theme1 +
+  xlab("Fraction inhibition") +
+  ylab("Extracellular sFLT1 \n(normalized)")
+```
+
+### abgd, facet grid, X and I
+
+```{r}
+inhfrac_abgd_xi_grid_18h <- Y_18h %>%
+  filter(!param_altered %in% c("kappa", "tau")) %>%
+  mutate(param_color = case_when(param_altered == "alpha" ~ param_pal$alpha,
+                                 param_altered == "beta" ~ param_pal$beta,
+                                 param_altered == "gamma" ~ param_pal$gamma,
+                                 param_altered == "delta" ~ param_pal$delta)) %>%
+  pivot_longer(cols = c(X_norm, I_norm),
+               names_to = "species", values_to = "amount") %>%
+  mutate(species = ifelse(species == "X_norm", "Extracellular (X)", "Intracellular (I)")) %>%
+  #mutate(species = ifelse(species == "X_norm", "X", "I")) %>%
+  ggplot(aes(inh_frac, amount, color = param_altered)) +
+  geom_line(size = 2) +
+  facet_grid(species ~ param_altered, scales = "free", labeller = label_parsed) +
+  xlab("Fraction inhibition") +
+  ylab("Normalized sFLT1") +
+  theme1 +
+  scale_color_manual(values = unlist(param_pal)) +
+  theme(legend.position = "none")
+  
+inhfrac_abgd_xi_grid_18h
+```
+
+```{r}
+# save plot
+ggsave(out_png("inhfrac_abgd_xi_grid_18h"),
+       inhfrac_abgd_xi_grid_18h, width = 12, height = 6)
+```
+
+### abgd, shared axes, X and I
+
+```{r}
+inhfrac_abgd_xi_shared_18h <- Y_18h %>%
+  filter(!param_altered %in% c("kappa", "tau")) %>%
+  pivot_longer(cols = c(X_norm, I_norm),
+               names_to = "species", values_to = "amount") %>%
+  mutate(species = ifelse(species == "X_norm", "Extracellular (X)", "Intracellular (I)")) %>%
+  #mutate(species = ifelse(species == "X_norm", "X", "I")) %>%
+  ggplot(aes(inh_frac, amount, col = param_altered)) +
+  geom_line(size = 2) +
+  facet_wrap(~ species) +
+  xlab("Fraction inhibition") +
+  ylab("Normalized sFLT1") +
+  theme1 +
+  scale_color_manual(values = unlist(param_pal), label = color_labels) +
+  theme(legend.position = "bottom") +
+  guides(color = guide_legend(title = "Parameter inhibited"))
+
+inhfrac_abgd_xi_shared
+```
+
+```{r}
+# save plot
+ggsave(out_png("inhfrac_abgd_xi_shared_18h"),
+       inhfrac_abgd_xi_shared_18h, width = 8, height = 4)
+```
+
+### Beta only
+
+#### Extracellular
+
+```{r}
+Y_18h %>%
+  filter(param_altered == "beta") %>%
+  ggplot(aes(inh_frac, X_norm)) +
+  geom_line(size = 2, col = param_pal$beta) +
+  theme1 +
+  xlab(TeX(r'(Fraction inhibition of $\beta$)')) +
+  ylab("Extracellular sFLT1 at 18h \n(Normalized to control)") +
+  #geom_hline(yintercept = bref_cm_ratio) + # annotate X level with brefeldin
+  #geom_hline(yintercept = chp_cm_ratio) +   # annotate X level with chlorpromazine
+# or annotate()
+  annotate("segment", x = 0, xend = bref_beta_X_inh_frac, 
+           y = bref_cm_ratio, yend = bref_cm_ratio, lty = 2) +
+  annotate("segment", x = bref_beta_X_inh_frac, xend = bref_beta_X_inh_frac, 
+           y = 0, yend = bref_cm_ratio, lty = 2) +
+  annotate("segment", x = 0, xend = chp_beta_X_inh_frac, 
+           y = chp_cm_ratio, yend = chp_cm_ratio, lty = 1) +
+  annotate("segment", x = chp_beta_X_inh_frac, xend = chp_beta_X_inh_frac, 
+           y = 0, yend = chp_cm_ratio, lty = 1) +
+  annotate("text", x = 0.4, y = bref_cm_ratio + .05, label = "brefeldin", size = 6) +
+  annotate("text", x = 0.2, y = chp_cm_ratio + .05, label = "chlorpromazine", size = 6) +
+  annotate("point", x = bref_beta_X_inh_frac, y = bref_cm_ratio, size = 5) +
+  annotate("point", x = chp_beta_X_inh_frac, y = chp_cm_ratio, size = 5)
+
+
+```
+
+#### Intracellular
+
+```{r}
+Y_18h %>%
+  filter(param_altered == "beta") %>%
+  ggplot(aes(inh_frac, I_norm)) +
+  geom_line(size = 2, col = param_pal$beta) +
+  theme1 +
+  xlab(TeX(r'(Fraction inhibition of $\beta$)')) +
+  ylab("Intracellular sFLT1 at 18h \n(Normalized to control)") +
+  geom_hline(yintercept = bref_lys_ratio, lty = 2) + # annotate X level with brefeldin
+  geom_hline(yintercept = chp_lys_ratio) +   # annotate X level with chlorpromazine
+# or annotate()
+  annotate("text", x = 0.4, y = bref_lys_ratio + .05, label = "brefeldin", size = 6) +
+  annotate("text", x = 0.2, y = chp_lys_ratio + .05, label = "chlorpromazine", size = 6) 
+```
+
+Interesting that the effect of drugs on I at 18h can't be reached with this parameter set
+
+This means the difference in secretion between control and drug treatment has to be 
+
+```{r}
+
+```
+
+
+
+
+```{r}
+pull_mean_ratio <- function(treatment, var){
+  mean_trt_ctrl_ratios %>%
+    filter(treatment_type == treatment & measured_var == var) %>%
+    pull(mean_ratio)
+}
+
+bref_cm_ratio <- pull_mean_ratio("Brefeldin", "sFlt1_CM")
+bref_lys_ratio <- pull_mean_ratio("Brefeldin", "sFlt1_lysate")
+chp_cm_ratio <- pull_mean_ratio("Chlorpromazine", "sFlt1_CM")
+chp_lys_ratio <- pull_mean_ratio("Chlorpromazine", "sFlt1_lysate")
+chq_cm_ratio <- pull_mean_ratio("Chloroquine", "sFlt1_CM")
+chq_lys_ratio <- pull_mean_ratio("Chloroquine", "sFlt1_lysate")
+```
+
+```{r}
+Y_18h_beta <- Y_18h %>%
+  filter(param_altered == "beta")
+
+# find beta inhibition value that maps to brefeldin effect on extracellular sFLT1
+bref_beta_X_inh_frac <- Y_18h_beta$inh_frac[which.min(abs(Y_18h_beta$X_norm - bref_cm_ratio))]
+
+# find beta inhibition value that maps to brefeldin effect on intracellular sFLT1
+bref_beta_I_inh_frac <- Y_18h_beta$inh_frac[which.min(abs(Y_18h_beta$I_norm - bref_lys_ratio))]
+
+# find beta inhibition value that maps to chlorpromazine effect on extracellular sFLT1
+chp_beta_X_inh_frac <- Y_18h_beta$inh_frac[which.min(abs(Y_18h_beta$X_norm - chp_cm_ratio))]
+
+# find beta inhibition value that maps to chlorpromazine effect on intracellular sFLT1
+chp_beta_I_inh_frac <- Y_18h_beta$inh_frac[which.min(abs(Y_18h_beta$I_norm - chp_lys_ratio))]
+```
+
+```{r}
+bref_beta_X_inh_frac
+bref_beta_I_inh_frac
+chp_beta_X_inh_frac
+chp_beta_I_inh_frac
+```
+
+## Time courses for 90% inhibition
+
+```{r}
+names(base_df)
+```
+
+
+
+```{r}
+Y_df_90pct <- Y_df %>%
+  filter(inh_frac == 0.9) %>%
+  select(t, X, I, param_altered) %>%
+  rbind(base_df) %>%
+  mutate(linetype = case_when(#param_altered == "beta" ~ "3",
+                              param_altered == "tau" ~ "2",
+                              TRUE ~ "1"),
+         linesize = ifelse(param_altered == "none", 4, 2))
+
+#levels(Y_df_90pct$param_altered) <- c("none", "alpha", "beta", "gamma", "delta", "kappa", "tau")
+```
+
+```{r}
+Y_df_90pct %>%
+  ggplot(aes(t, X, color = param_altered, lty = linetype)) +
+  geom_line(size = 2) +
+  scale_color_manual(values = unlist(param_pal), label = color_labels) +
+  scale_linetype_manual(values = c("solid", "dotted", "twodash")) + 
+  theme1 +
+  guides(color = guide_legend(title = "Parameter inhibited (90%)",
+                              nrow = 2, byrow = TRUE),
+         lty = "none") +
+  xlab("Time (h)") +
+  ylab("Extracellular sFLT1") +
+  theme(legend.position = c(0.3, 0.8))
+```
+
+### Intracellular
+
+```{r}
+I_tc_inh_90 <- Y_df %>%
+  filter(inh_frac == 0.9) %>%
+  mutate(linetype = case_when(param_altered == "kappa" ~ "2", 
+                              param_altered == "tau" ~ "3",
+                              TRUE ~ "1")) %>%
+  ggplot(aes(t, I, color = param_altered)) +
+  geom_line(data = base_df, aes(t, I), color = "black", size = 6) +
+  geom_line(aes(lty = linetype), size = 3) +
+  scale_color_manual(values = unlist(param_pal), label = color_labels) +
+  scale_linetype_manual(values = c("solid", "twodash", "dotdash", "dotted")) + 
+  theme1 +
+  guides(color = guide_legend(title = "Parameter inhibited (90%)",
+                              nrow = 2, byrow = TRUE),
+         lty = "none") +
+  xlab("Time since inhibitor (h)") +
+  ylab("Intracellular sFLT1 (#/cell)") +
+  theme(legend.position = c(0.7, 0.65))
+
+I_tc_inh_90
+```
+
+```{r}
+# save plot
+ggsave(out_png("I_tc_inh_90"),
+       I_tc_inh_90, width = 6, height = 4)
+```
+
+### Extracellular
+
+```{r}
+X_tc_inh_90 <- Y_df %>%
+  filter(inh_frac == 0.9) %>%
+  mutate(linetype = case_when(param_altered == "tau" ~ "2",
+                              TRUE ~ "1")) %>%
+  ggplot(aes(t, X, color = param_altered)) +
+  geom_line(data = base_df, color = "black", size = 6) +
+  geom_line(aes(lty = linetype), size = 3) +
+  geom_point(data = hornig_basal, color = "black", size = 8) +
+  scale_color_manual(values = unlist(param_pal), label = color_labels) +
+  scale_linetype_manual(values = c("solid", "dashed")) + 
+  theme1 +
+  #guides(color = guide_legend(title = "Parameter inhibited (90%)",
+  #                            nrow = 2, byrow = TRUE), lty = "none") +
+  xlab("Time (h)") +
+  ylab("Extracellular sFLT1 (ng/mL)") +
+  #theme(legend.position = c(0.3, 0.8)) +
+  theme(legend.position = "none") +
+  annotate("text", x = 35, y = 0.8, label = parse(text = "alpha"), color = param_pal$alpha, size = 12) +
+  annotate("text", x = 70, y = 1, label = parse(text = "beta"), color = param_pal$beta, size = 12) +
+  annotate("text", x = 35, y = 4.8, label = parse(text = "gamma"), color = param_pal$gamma, size = 12) +
+  annotate("text", x = 45, y = 3.5, label = parse(text = "delta"), color = param_pal$delta, size = 12) +
+  annotate("text", x = 63, y = 3, label = parse(text = "kappa"), color = param_pal$kappa, size = 12) +
+  annotate("text", x = 68, y = 3.1, label = parse(text = "tau"), color = param_pal$tau, size = 12) +
+  annotate("text", x = 60, y = 1.6, label = "none", color = param_pal$none, size = 8)
+
+X_tc_inh_90
+```
+
+```{r}
+# save plot
+ggsave(out_png("X_tc_inh_90"),
+       X_tc_inh_90, width = 6, height = 4)
+```
+
+

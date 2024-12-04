@@ -1,0 +1,1166 @@
+---
+title: "Sensitivity analysis of constitutive sFLT1 secretion - fraction inhibition by genetic manipulation"
+author: "Amy Gill"
+date: "2023-04-19"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+This file imports data from analysis of different fractional inhibition of each parameter starting from different base cases, performed 2/14/23 using the Matlab script "sFlt-model/04_sensitivity/sens_analysis.m" with run_mode = "sens_vary_base_inh_genchem", genetic_chemical = "genetic".
+
+## Setup
+
+### Common setup
+
+```{r}
+# load packages, define helper functions, define color palettes, load experimental data
+source("../../helper_scripts/setup.R")
+```
+
+### Set output file
+
+```{r}
+# define folder where output will be saved (for example, png images from ggsave)
+outfile_prefix = "../../../saved-figs/04_sensitivity/vary_base_vary_inh_gen/"
+dir.create(outfile_prefix, recursive = TRUE)
+```
+
+## Load and wrangle files
+
+### Import experimental data from CSV
+
+```{r}
+exp_df <- read_csv("../../../saved-data/karina/updated_inhibitor_data_2023-03-29/kd_wrangled.csv")
+```
+
+### Calculate mean treatment/control ratios (fraction of control)
+
+```{r}
+# calculate mean,sd treatment/control ratio for each variable (X,I) for each treatment type
+mean_trt_ctrl_ratios <- exp_df %>%
+  filter(kd_target %in% c("RAB27a", "STX3", "STX6", "VAMP3")) %>%
+  group_by(kd_target, measured_var) %>%
+  summarize(mean_ratio = mean(trt_ctrl_ratio, na.rm = TRUE),
+            sd_ratio = sd(trt_ctrl_ratio, na.rm = TRUE))
+
+# function to extract a particular mean ratio
+pull_mean_ratio <- function(treatment, var){
+  mean_trt_ctrl_ratios %>%
+    filter(kd_target == treatment & measured_var == var) %>%
+    pull(mean_ratio)
+}
+
+# extract ratios to be used later
+rab27a_cm_ratio <- pull_mean_ratio("RAB27a", "sFlt1_CM")
+rab27a_lys_ratio <- pull_mean_ratio("RAB27a", "sFlt1_lysate")
+stx3_cm_ratio <- pull_mean_ratio("STX3", "sFlt1_CM")
+stx3_lys_ratio <- pull_mean_ratio("STX3", "sFlt1_lysate")
+stx6_cm_ratio <- pull_mean_ratio("STX6", "sFlt1_CM")
+stx6_lys_ratio <- pull_mean_ratio("STX6", "sFlt1_lysate")
+vamp3_cm_ratio <- pull_mean_ratio("VAMP3", "sFlt1_CM")
+vamp3_lys_ratio <- pull_mean_ratio("VAMP3", "sFlt1_lysate")
+```
+
+### Hornig experimental data
+
+```{r}
+# load experimental data from Hornig
+load("../../../saved-data/hornig.rda")
+
+hornig_basal <- hornig %>%
+  filter(condition == "basal") %>%
+  select(t = nominal_time, X = Sx_ng_ml)
+
+hornig_basal
+```
+
+### Simulation input file
+
+```{r}
+# import file of input parameters
+param_file <- readMat("../../../saved-data/04_sensitivity/vary_base_vary_inh_gen/input.mat")
+
+# inspect available variables
+names(param_file)
+```
+
+### Simulation output file
+
+```{r}
+# import file 
+inh_file <- readMat("../../../saved-data/04_sensitivity/vary_base_vary_inh_gen/sens_diffbase_output.mat")
+
+# inspect available variables
+names(inh_file)
+```
+
+### Species names and parameter names
+
+```{r}
+species_names <- str_replace(names(param_file$sp[,,1]), "\\.", "_")
+param_names <- unlist(inh_file$param.names)
+```
+
+### Extract beta values and full sets of base parameter values
+
+```{r}
+in_betas <- as.vector(param_file$betas)
+
+base_param_mat <- param_file$p.base.all
+
+# rows = parameter names
+rownames(base_param_mat) <- param_names
+
+# columns = parameter sets
+colnames(base_param_mat) <- sapply(1:length(in_betas), function(i){
+  paste0("set_", i)})
+
+base_param_df <- as.data.frame(base_param_mat)
+base_param_df$param = rownames(base_param_mat)
+
+# doesn't auto-adjust ti changing # bases
+base_param_df <- base_param_df %>%
+  pivot_longer(set_1:set_5, names_to = "param_set", values_to = "base_param_value")
+```
+
+
+### Extract outputs to list
+
+```{r}
+inh_file_outlist <- inh_file$out[,,1]
+names(inh_file_outlist) <- str_replace_all(names(inh_file_outlist), "\\.", "_")
+names(inh_file_outlist)
+```
+
+```{r}
+num_params <- length(param_names)
+num_inhs <- length(inh_file$inh.frac)
+num_bases <- length(param_file$betas) # number of base cases to test
+```
+
+### Extract time points
+
+```{r}
+time_vec <- inh_file$sim.time[1,]
+```
+
+### Extract baseline time courses for X, I
+
+
+#### Extract for X
+
+```{r}
+X_base_tcs <- inh_file_outlist$X_base_tcs_all
+
+colnames(X_base_tcs) <- sapply(1:length(in_betas), function(i){
+  paste0("set_", i)})
+
+X_base_df <- as.data.frame(X_base_tcs)
+
+X_base_df$t <- time_vec
+
+# does not adapt to changing number of bases - manually adjust
+X_base_df <- X_base_df %>%
+  pivot_longer(set_1:set_5, names_to = "base_params", values_to = "X_base")
+```
+
+#### Extract for Y
+
+```{r}
+I_base_tcs <- inh_file_outlist$I_base_tcs_all
+
+colnames(I_base_tcs) <- sapply(1:length(in_betas), function(i){
+  paste0("set_", i)})
+
+I_base_df <- as.data.frame(I_base_tcs)
+
+I_base_df$t <- time_vec
+
+I_base_df <- I_base_df %>%
+  pivot_longer(set_1:set_5, names_to = "base_params", values_to = "I_base")
+```
+
+#### Combine baseline time courses
+
+```{r}
+base_tc_df <- X_base_df %>%
+  left_join(I_base_df, by = c("t", "base_params")) %>%
+  right_join(base_param_df, join_by("base_params" == "param_set")) %>%
+  mutate(param_altered = "none",
+         param = paste0("base_", param)) %>%
+  pivot_wider(names_from = "param", values_from = "base_param_value") %>%
+  mutate(base_beta = factor(round(base_beta, 3)))
+
+base_tc_df
+```
+
+
+### Generate or load inhibition time course data frame
+
+#### Define function for Y_df extraction
+
+```{r}
+# format data frames of simulated species values for time courses
+make_sim_Y_df <- function(Y_mat){
+  
+  # flatten matrix to data frame of time course data
+  # (this isn't very "R-style", but it works, so tell Hadley to chill)
+  for (i in 1:dim(Y_mat)[3]) {
+    # print(i)
+    if (i == 1) {    # first run: initialize output data frame
+      # extract matrix for first parameter set to a data frame
+      Y_temp <- as.data.frame(Y_mat[,,1])
+      names(Y_temp) <- species_names
+      Y_temp$run <- 1
+        
+      # initialize full Y data frame to the time course from this first run
+      Y_df <- Y_temp
+      
+    } else {    # later runs: append to data frame
+      Y_temp <- as.data.frame(Y_mat[,,i])
+      names(Y_temp) <- species_names
+      Y_temp$run <- i
+      Y_df <- rbind(Y_df, Y_temp)
+    }
+  }
+  
+  # add matching time points
+  Y_df <- Y_df %>%
+    mutate(t = rep(time_vec, num_params * num_inhs * num_bases))
+  
+  Y_df
+}
+```
+
+
+#### Generate or load Y_df
+
+If Y_df has already been generated, load it. Otherwise, generate and save Y_df.
+
+```{r}
+Y_df_filename <- paste0(outfile_prefix, "Y_df_imported.rda")
+
+if(file.exists(Y_df_filename)){
+  load(Y_df_filename)
+} else {
+  # extract simulated data
+  Y_df <- make_sim_Y_df(inh_file$Y.all)
+  save(Y_df, file = paste0(outfile_prefix, "Y_df_imported.rda"))
+}
+```
+
+### Annotate parameter alteration metadata
+
+Order: For each base parameter set, for each parameter, test each inhibition fraction
+
+```{r}
+# annotate base parameter set
+param_set <- unlist(lapply(1:num_bases, function(x){
+  rep(paste0("set_", x), num_inhs * num_params)
+}))
+
+# annotate parameter altered
+temp <- unlist(lapply(1:num_params, function(x){
+  rep(param_names[x], num_inhs)
+}))
+
+param_altered <- rep(temp, num_bases)
+
+# extract inhibition fraction
+inh_frac <- rep(rep(inh_file$inh.frac[1,], num_params), num_bases)
+
+param_meta_df <- data.frame(run = 1:(num_bases * num_params * num_inhs),
+                            base_param_set = factor(param_set),
+                            param_altered = factor(param_altered,
+                                                  levels = c("alpha", "beta", "gamma",
+                                                             "delta", "tau")), 
+                           inh_frac = inh_frac)
+
+param_meta_df
+```
+
+### Merge time course data and parameter inhibition metadata
+
+```{r}
+Y_df_filename_2 <- paste0(outfile_prefix, "Y_df_meta_added.rda")
+
+if(file.exists(Y_df_filename_2)){
+  load(Y_df_filename_2)
+} else {
+
+  Y_df <- Y_df %>%
+    left_join(param_meta_df, by = "run")
+  
+  save(Y_df, file = paste0(outfile_prefix, Y_df_filename_2))
+}
+```
+
+### Extract 72h values, normalize to baseline
+
+```{r}
+# all species at 72h in all conditions
+Y_72h <- Y_df %>%
+  filter(t == 72)
+
+# baseline X at 72h
+base_72h_df <- base_tc_df %>% 
+  filter(t == 72) %>%
+  select(base_param_set = base_params, X_base_t = X_base, I_base_t = I_base, base_beta)
+
+Y_72h <- Y_72h %>%
+  full_join(base_72h_df, by = "base_param_set") %>%
+  mutate(X_norm = X/X_base_t,
+         I_norm = I/I_base_t)
+```
+
+### Extract 18h values, normalize to baseline
+
+```{r}
+# all species at 18h in all conditions
+Y_18h <- Y_df %>%
+  filter(t == 18)
+
+# baseline X at 18h
+base_18h_df <- base_tc_df %>% 
+  filter(t == 18) %>%
+  select(base_param_set = base_params, X_base_t = X_base, I_base_t = I_base, base_beta)
+
+Y_18h <- Y_18h %>%
+  left_join(base_18h_df, by = "base_param_set") %>%
+  mutate(X_norm = X/X_base_t,
+         I_norm = I/I_base_t)
+
+Y_18h
+```
+
+### Combined 18/72h values
+
+```{r}
+Y_combo <- rbind(Y_18h, Y_72h)
+Y_combo
+```
+
+### Inhibitors of beta - find inh frac
+
+```{r}
+Y_18h_beta <- Y_18h %>%
+  filter(param_altered == "beta") %>%
+  mutate(rab27a_x_error = abs(X_norm - rab27a_cm_ratio),
+         rab27a_i_error = abs(I_norm - rab27a_lys_ratio),
+         stx3_x_error = abs(X_norm - stx3_cm_ratio),
+         stx3_i_error = abs(I_norm - stx3_lys_ratio),
+         stx6_x_error = abs(X_norm - stx6_cm_ratio),
+         stx6_i_error = abs(I_norm - stx6_lys_ratio),
+         vamp3_x_error = abs(X_norm - vamp3_cm_ratio),
+         vamp3_i_error = abs(I_norm - vamp3_lys_ratio))
+
+temp_list <- lapply(1:num_bases, function(x){
+  temp_df <- Y_18h %>%
+    filter(param_altered == "beta",
+           base_param_set == paste0("set_", x))
+  
+  # find beta inhibition value that maps to RAB27a effect on extracellular sFLT1
+  rab27a_beta_X_inh_frac <- temp_df$inh_frac[which.min(abs(temp_df$X_norm - rab27a_cm_ratio))]
+  
+  # find beta inhibition value that maps to RAB27a effect on intracellular sFLT1
+  rab27a_beta_I_inh_frac <- temp_df$inh_frac[which.min(abs(temp_df$I_norm - rab27a_lys_ratio))]
+  
+  # find beta inhibition value that maps to STX3 effect on extracellular sFLT1
+  stx3_beta_X_inh_frac <- temp_df$inh_frac[which.min(abs(temp_df$X_norm - stx3_cm_ratio))]
+  
+  # find beta inhibition value that maps to STX3 effect on intracellular sFLT1
+  stx3_beta_I_inh_frac <- temp_df$inh_frac[which.min(abs(temp_df$I_norm - stx3_lys_ratio))]
+  
+  # find beta inhibition value that maps to STX6 effect on extracellular sFLT1
+  stx6_beta_X_inh_frac <- temp_df$inh_frac[which.min(abs(temp_df$X_norm - stx6_cm_ratio))]
+  
+  # find beta inhibition value that maps to STX6 effect on intracellular sFLT1
+  stx6_beta_I_inh_frac <- temp_df$inh_frac[which.min(abs(temp_df$I_norm - stx6_lys_ratio))]
+  
+  # find beta inhibition value that maps to VAMP3 effect on extracellular sFLT1
+  vamp3_beta_X_inh_frac <- temp_df$inh_frac[which.min(abs(temp_df$X_norm - vamp3_cm_ratio))]
+  
+  # find beta inhibition value that maps to VAMP3 effect on intracellular sFLT1
+  vamp3_beta_I_inh_frac <- temp_df$inh_frac[which.min(abs(temp_df$I_norm - vamp3_lys_ratio))]
+  
+  data.frame(inhibitor = c("RAB27a", "RAB27a", "STX3", "STX3", "STX6", "STX6", "VAMP3", "VAMP3"),
+             base_param_set = paste0("set_", x),
+             output = rep(c("X_inh_frac", "I_inh_frac"),4),
+             inh_frac = c(rab27a_beta_X_inh_frac, rab27a_beta_I_inh_frac, 
+                          stx3_beta_X_inh_frac, stx3_beta_I_inh_frac,
+                          stx6_beta_X_inh_frac, stx6_beta_I_inh_frac,
+                          vamp3_beta_X_inh_frac, vamp3_beta_I_inh_frac)) %>%
+    pivot_wider(names_from = "output", values_from = "inh_frac")
+  
+})
+
+# need to write for an arbitrary number of divides - for now, manually update
+inh_frac_df <- rbind(temp_list[[1]], temp_list[[2]], temp_list[[3]], temp_list[[4]], temp_list[[5]])
+
+inh_frac_df
+```
+
+## Base plots
+
+### Base X
+
+```{r}
+base_X_tcs <- base_tc_df %>%
+  ggplot(aes(t, X_base, col = base_beta)) +
+  geom_line(linewidth = 2, alpha = 0.7) +
+  xlab("Time (h)") +
+  ylab("X (ng/mL)") +
+  scale_x_continuous(breaks = seq(0, 72, by=24)) +
+  theme_paper +
+  scale_color_manual(values = cb_pal) +
+  labs(color = TeX(r'(Base $\beta$)')) +
+  theme(legend.position = "right")
+
+# save plot
+ggsave(out_png("base_X_tcs"),
+       base_X_tcs, width = 6, height = 4)
+
+base_X_tcs
+```
+
+
+### Base I
+
+```{r}
+base_I_tcs <- base_tc_df %>%
+  ggplot(aes(t, I_base, col = base_beta)) +
+  geom_line(linewidth = 2) +
+  xlab("Time (h)") +
+  ylab("I (#/cell)") +
+  scale_x_continuous(breaks = seq(0, 72, by=24)) +
+  scale_y_continuous(limits = c(0, 1.25e6), breaks = seq(0, 1.25e6, 2.5e5)) +
+  theme_paper +
+  scale_color_manual(values = cb_pal) +
+  labs(color = TeX(r'(Base $\beta$)')) +
+  theme(legend.position = "right")
+
+# save plot
+ggsave(out_png("base_I_tcs"),
+       base_I_tcs, width = 6, height = 4)
+
+base_I_tcs
+```
+
+### Combined X, I
+
+```{r}
+X_I_base_tcs <- (base_X_tcs + theme(legend.position = "none")) /
+  (base_I_tcs + theme(legend.position = "bottom"))
+
+# save plot
+ggsave(out_png("X_I_base_tcs"),
+       X_I_base_tcs, width = 7, height = 8)
+
+X_I_base_tcs
+```
+
+## 72h plots: fraction of initial amount 
+
+### abgd, facet grid, X and I
+
+
+```{r}
+inhfrac_abgd_xi_grid_72h <- Y_72h %>%
+  filter(param_altered != "tau") %>%
+  pivot_longer(cols = c(X_norm, I_norm), names_to = "species", values_to = "amount") %>%
+  mutate(species = ifelse(species == "X_norm", "X", "I"),
+         species = factor(species, levels = c("X", "I"))) %>%
+  ggplot(aes(inh_frac, amount, color = base_beta)) +
+      geom_hline(yintercept = 1, lty = 2, linewidth = 0.5) +
+  geom_line(linewidth = 1, alpha = 0.9) +
+  facet_grid(species ~ param_altered, scales = "free", labeller = label_parsed) +
+  xlab("Fraction inhibition") +
+  ylab("Normalized sFLT1") +
+  theme_paper +
+  scale_x_continuous(expand = c(0,0), breaks = seq(0, 1, by = 0.25)) +
+  scale_y_continuous(limits = c(0, 4)) +
+  scale_color_manual(values = cb_pal) +
+  theme(panel.spacing = unit(1.5, "lines")) +
+  labs(color = TeX(r'(Base $\beta$)'))
+
+# save plot
+ggsave(out_png("inhfrac_abgd_xi_grid_72h"),
+       inhfrac_abgd_xi_grid_72h, width = 12, height = 6)
+
+inhfrac_abgd_xi_grid_72h
+```
+
+### Individual plots
+
+#### alpha, X
+
+```{r}
+X_72h_v_inh_frac_alpha <- Y_72h %>%
+  filter(param_altered == "alpha") %>%
+  ggplot(aes(inh_frac, X_norm, col = base_beta)) +
+  geom_line(linewidth = 2) +
+  theme_paper +
+  xlab(TeX(r'(Fraction inhibition of $\alpha$)')) +
+  ylab(TeX(r'($X_{72h}$ (Normalized))'))  +
+  scale_color_manual(values = cb_pal) +
+  scale_y_continuous(limits = c(0,4), expand = c(0.01,0.01)) +
+  scale_x_continuous(expand = c(0.01,0.01)) +
+  labs(color = TeX(r'(Base $\beta$)')) +
+  theme(legend.position = "right")
+
+# save plot
+ggsave(out_png("X_72h_v_inh_frac_alpha"),
+       X_72h_v_inh_frac_alpha, width = 6, height = 4)
+
+X_72h_v_inh_frac_alpha
+```
+
+
+#### alpha, I
+
+```{r}
+I_72h_v_inh_frac_alpha <- Y_72h %>%
+  filter(param_altered == "alpha") %>%
+  ggplot(aes(inh_frac, I_norm, col = base_beta)) +
+  geom_line(linewidth = 2) +
+  theme_paper +
+  xlab(TeX(r'(Fraction inhibition of $\alpha$)')) +
+  ylab(TeX(r'($I_{72h}$ (Normalized))'))  +
+  scale_color_manual(values = cb_pal) +
+  scale_y_continuous(limits = c(0,2), expand = c(0.01,0.01)) +
+  scale_x_continuous(expand = c(0.01,0.01)) +
+  labs(color = TeX(r'(Base $\beta$)')) +
+  theme(legend.position = "right")
+
+# save plot
+ggsave(out_png("I_72h_v_inh_frac_alpha"),
+       I_72h_v_inh_frac_alpha, width = 6, height = 4)
+
+I_72h_v_inh_frac_alpha
+```
+
+
+#### beta, X
+
+```{r}
+X_72h_v_inh_frac_beta <- Y_72h %>%
+  filter(param_altered == "beta") %>%
+  ggplot(aes(inh_frac, X_norm, col = base_beta)) +
+  geom_line(linewidth = 2) +
+  theme_paper +
+  xlab(TeX(r'(Fraction inhibition of $\beta$)')) +
+  ylab(TeX(r'($X_{72h}$ (Normalized))'))  +
+  scale_color_manual(values = cb_pal) +
+  scale_y_continuous(limits = c(0,4), expand = c(0.01,0.01)) +
+  scale_x_continuous(expand = c(0.01,0.01)) +
+  labs(color = TeX(r'(Base $\beta$)')) +
+  theme(legend.position = "right")
+
+# save plot
+ggsave(out_png("X_72h_v_inh_frac_beta"),
+       X_72h_v_inh_frac_beta, width = 6, height = 4)
+
+X_72h_v_inh_frac_beta
+```
+
+
+#### beta, I
+
+```{r}
+I_72h_v_inh_frac_beta <- Y_72h %>%
+  filter(param_altered == "beta") %>%
+  ggplot(aes(inh_frac, I_norm, col = base_beta)) +
+  geom_line(linewidth = 2) +
+  theme_paper +
+  xlab(TeX(r'(Fraction inhibition of $\beta$)')) +
+  ylab(TeX(r'($I_{72h}$ (Normalized))'))  +
+  scale_color_manual(values = cb_pal) +
+  scale_y_continuous(limits = c(0, 2), expand = c(0.01,0.01)) +
+  scale_x_continuous(expand = c(0.01,0.01)) +
+  labs(color = TeX(r'(Base $\beta$)')) +
+  theme(legend.position = "right")
+
+# save plot
+ggsave(out_png("I_72h_v_inh_frac_beta"),
+       I_72h_v_inh_frac_beta, width = 6, height = 4)
+
+I_72h_v_inh_frac_beta
+```
+
+
+#### gamma, X
+
+```{r}
+X_72h_v_inh_frac_gamma <- Y_72h %>%
+  filter(param_altered == "gamma") %>%
+  ggplot(aes(inh_frac, X_norm, col = base_beta)) +
+  geom_line(linewidth = 2) +
+  theme_paper +
+  xlab(TeX(r'(Fraction inhibition of $\gamma$)')) +
+  ylab(TeX(r'($X_{72h}$ (Normalized))'))  +
+  scale_color_manual(values = cb_pal) +
+  scale_y_continuous(limits = c(0, 4), expand = c(0.01,0.01)) +
+  scale_x_continuous(expand = c(0.01,0.01)) +
+  labs(color = TeX(r'(Base $\beta$)')) +
+  theme(legend.position = "right")
+
+# save plot
+ggsave(out_png("X_72h_v_inh_frac_gamma"),
+       X_72h_v_inh_frac_gamma, width = 6, height = 4)
+
+X_72h_v_inh_frac_gamma
+```
+
+
+#### gamma, I
+
+```{r}
+I_72h_v_inh_frac_gamma <- Y_72h %>%
+  filter(param_altered == "gamma") %>%
+  ggplot(aes(inh_frac, I_norm, col = base_beta)) +
+  geom_line(linewidth = 2) +
+  theme_paper +
+  xlab(TeX(r'(Fraction inhibition of $\gamma$)')) +
+  ylab(TeX(r'($I_{72h}$ (Normalized))'))  +
+  scale_color_manual(values = cb_pal) +
+  scale_y_continuous(limits = c(0, 2), expand = c(0.01,0.01)) +
+  scale_x_continuous(expand = c(0.01,0.01)) +
+  labs(color = TeX(r'(Base $\beta$)')) +
+  theme(legend.position = "right")
+
+# save plot
+ggsave(out_png("I_72h_v_inh_frac_gamma"),
+       I_72h_v_inh_frac_gamma, width = 6, height = 4)
+
+I_72h_v_inh_frac_gamma
+```
+
+
+#### delta, X
+
+```{r}
+X_72h_v_inh_frac_delta <- Y_72h %>%
+  filter(param_altered == "delta") %>%
+  ggplot(aes(inh_frac, X_norm, col = base_beta)) +
+  geom_line(linewidth = 2) +
+  theme_paper +
+  xlab(TeX(r'(Fraction inhibition of $\delta$)')) +
+  ylab(TeX(r'($X_{72h}$ (Normalized))'))  +
+  scale_color_manual(values = cb_pal) +
+  scale_y_continuous(limits = c(0, 4), expand = c(0.01,0.01)) +
+  scale_x_continuous(expand = c(0.01,0.01)) +
+  labs(color = TeX(r'(Base $\beta$)')) +
+  theme(legend.position = "right")
+
+# save plot
+ggsave(out_png("X_72h_v_inh_frac_delta"),
+       X_72h_v_inh_frac_delta, width = 6, height = 4)
+
+X_72h_v_inh_frac_delta
+```
+
+
+#### delta, I
+
+
+```{r}
+I_72h_v_inh_frac_delta <- Y_72h %>%
+  filter(param_altered == "delta") %>%
+  ggplot(aes(inh_frac, I_norm, col = base_beta)) +
+  geom_line(linewidth = 2) +
+  theme_paper +
+  xlab(TeX(r'(Fraction inhibition of $\delta$)')) +
+  ylab(TeX(r'($I_{72h}$ (Normalized))'))  +
+  scale_color_manual(values = cb_pal) +
+  scale_y_continuous(limits = c(0, 2), expand = c(0.01,0.01)) +
+  scale_x_continuous(expand = c(0.01,0.01)) +
+  labs(color = TeX(r'(Base $\beta$)')) +
+  theme(legend.position = "right")
+
+# save plot
+ggsave(out_png("I_72h_v_inh_frac_delta"),
+       I_72h_v_inh_frac_delta, width = 6, height = 4)
+
+I_72h_v_inh_frac_delta
+```
+
+Made an attempt to combine in patchwork, but the guides were not behaving nicely.
+
+## 18h plots: fraction of initial amount 
+
+### abgd, facet grid, X and I
+
+```{r}
+inhfrac_abgd_xi_grid_18h <- Y_18h %>%
+  filter(param_altered != "tau") %>%
+  #mutate(param_color = case_when(param_altered == "alpha" ~ param_pal_list$alpha,
+  #                               param_altered == "beta" ~ param_pal_list$beta,
+  #                               param_altered == "gamma" ~ param_pal_list$gamma,
+  #                               param_altered == "delta" ~ param_pal_list$delta)) %>%
+  pivot_longer(cols = c(X_norm, I_norm), names_to = "species", values_to = "amount") %>%
+  mutate(species = ifelse(species == "X_norm", "X", "I"),
+         species = factor(species, levels = c("X", "I"))) %>%
+  ggplot(aes(inh_frac, amount, color = base_beta)) +
+      geom_hline(yintercept = 1, lty = 2, linewidth = 0.5) +
+  geom_line(linewidth = 1, alpha = 0.9) +
+  facet_grid(species ~ param_altered, scales = "free", labeller = label_parsed) +
+  xlab("Fraction inhibition") +
+  ylab("Normalized sFLT1") +
+  theme_paper +
+  scale_x_continuous(expand = c(0,0), breaks = seq(0, 1, by = 0.25)) +
+  scale_y_continuous(limits = c(0,4)) +
+  scale_color_manual(values = cb_pal) +
+  theme(panel.spacing = unit(1.5, "lines")) +
+  labs(color = TeX(r'(Base $\beta$)'))
+
+# save plot
+ggsave(out_png("inhfrac_abgd_xi_grid_18h"),
+       inhfrac_abgd_xi_grid_18h, width = 12, height = 6)
+
+inhfrac_abgd_xi_grid_18h
+```
+
+### Beta only - annotate siRNAs
+
+#### Extracellular
+
+```{r}
+X_18h_v_inh_frac_beta <- Y_18h %>%
+  filter(param_altered == "beta") %>%
+  ggplot(aes(inh_frac, X_norm, col = base_beta)) +
+  geom_line(linewidth = 2) +
+  theme_paper +
+  xlab(TeX(r'(Fraction inhibition of $\beta$)')) +
+  ylab(TeX(r'($X_{18h}$ (Normalized))'))  +
+  scale_color_manual(values = cb_pal) +
+  scale_y_continuous(expand = c(0.01,0.01)) +
+  scale_x_continuous(expand = c(0.01,0.01)) +
+  labs(color = TeX(r'(Base $\beta$)')) +
+  theme(legend.position = "right")
+
+# save plot
+ggsave(out_png("X_18h_v_inh_frac_beta_nonotes"),
+       X_18h_v_inh_frac_beta, width = 6, height = 4)
+
+X_18h_v_inh_frac_beta
+```
+
+##### Annotate VAMP3
+
+```{r}
+# extract data frame of RAB27a inhibition fraction estimates for each base parameter set
+vamp3_inh_frac_df <- inh_frac_df %>%
+  filter(inhibitor == "VAMP3")
+
+X_18h_v_inh_frac_beta_vamp3 <- X_18h_v_inh_frac_beta +
+  geom_hline(yintercept = vamp3_cm_ratio, lty = 4) +
+  annotate("text", x = 0.12, y = vamp3_cm_ratio + .05, label = "siVAMP3", size = 6) 
+
+for (i in num_bases:1) {
+  
+  if(vamp3_inh_frac_df$X_inh_frac[i] < .99){
+    X_18h_v_inh_frac_beta_vamp3 <- X_18h_v_inh_frac_beta_vamp3 +
+      annotate("segment", x = vamp3_inh_frac_df$X_inh_frac[i], xend = vamp3_inh_frac_df$X_inh_frac[i], 
+               y = -Inf, yend = vamp3_cm_ratio, , color = cb_pal[i]) +  
+      annotate("point", x = vamp3_inh_frac_df$X_inh_frac[i], y = vamp3_cm_ratio, 
+               size = 5, pch = 21, fill = cb_pal[i], color = "black")
+  }
+  
+}
+
+# save plot
+ggsave(out_png("X_18h_v_inh_frac_beta_vamp3"),
+       X_18h_v_inh_frac_beta_vamp3, width = 6, height = 4)
+
+X_18h_v_inh_frac_beta_vamp3
+```
+
+##### Annotate STX3
+
+```{r}
+# extract data frame of RAB27a inhibition fraction estimates for each base parameter set
+stx3_inh_frac_df <- inh_frac_df %>%
+  filter(inhibitor == "STX3")
+
+X_18h_v_inh_frac_beta_stx3 <- X_18h_v_inh_frac_beta +
+  geom_hline(yintercept = stx3_cm_ratio, lty = 3) +
+  annotate("text", x = 0.23, y = stx3_cm_ratio + .05, label = "siSTX3", size = 6) 
+
+for (i in num_bases:1) {
+  
+  if(stx3_inh_frac_df$X_inh_frac[i] < .99){
+    X_18h_v_inh_frac_beta_stx3 <- X_18h_v_inh_frac_beta_stx3 +
+    annotate("segment", x = stx3_inh_frac_df$X_inh_frac[i], xend = stx3_inh_frac_df$X_inh_frac[i], 
+           y = -Inf, yend = stx3_cm_ratio, , color = cb_pal[i]) +  
+    annotate("point", x = stx3_inh_frac_df$X_inh_frac[i], y = stx3_cm_ratio, 
+             size = 5, pch = 21, fill = cb_pal[i], color = "black")
+  }
+  
+}
+
+# save plot
+ggsave(out_png("X_18h_v_inh_frac_beta_stx3"),
+       X_18h_v_inh_frac_beta_stx3, width = 6, height = 4)
+
+X_18h_v_inh_frac_beta_stx3
+```
+
+##### Annotate STX6
+
+```{r}
+# extract data frame of STX6 inhibition fraction estimates for each base parameter set
+stx6_inh_frac_df <- inh_frac_df %>%
+  filter(inhibitor == "STX6")
+
+X_18h_v_inh_frac_beta_stx6 <- X_18h_v_inh_frac_beta +
+  geom_hline(yintercept = stx6_cm_ratio, lty = 2) +
+  annotate("text", x = 0.57, y = stx6_cm_ratio + .05, label = "siSTX6", size = 6) 
+
+for (i in 1:num_bases) {
+  if(stx6_inh_frac_df$X_inh_frac[i] < .99){
+  
+  X_18h_v_inh_frac_beta_stx6 <- X_18h_v_inh_frac_beta_stx6 +
+    annotate("segment", x = stx6_inh_frac_df$X_inh_frac[i], xend = stx6_inh_frac_df$X_inh_frac[i], 
+           y = -Inf, yend = stx6_cm_ratio, , color = cb_pal[i]) +  
+    annotate("point", x = stx6_inh_frac_df$X_inh_frac[i], y = stx6_cm_ratio, 
+             size = 5, pch = 21, fill = cb_pal[i], color = "black")
+  }
+}
+
+# save plot
+ggsave(out_png("X_18h_v_inh_frac_beta_stx6"),
+       X_18h_v_inh_frac_beta_stx6, width = 6, height = 4)
+
+X_18h_v_inh_frac_beta_stx6
+```
+
+##### Annotate RAB27a
+
+```{r}
+# extract data frame of RAB27a inhibition fraction estimates for each base parameter set
+rab27a_inh_frac_df <- inh_frac_df %>%
+  filter(inhibitor == "RAB27a")
+
+X_18h_v_inh_frac_beta_rab27a <- X_18h_v_inh_frac_beta +
+  geom_hline(yintercept = rab27a_cm_ratio, lty = 1) +
+  annotate("text", x = 0.4, y = rab27a_cm_ratio + .05, label = "siRAB27a", size = 6) 
+
+for (i in 1:num_bases) {
+  if(rab27a_inh_frac_df$X_inh_frac[i] < .99){
+    X_18h_v_inh_frac_beta_rab27a <- X_18h_v_inh_frac_beta_rab27a +
+      annotate("segment", x = rab27a_inh_frac_df$X_inh_frac[i], xend = rab27a_inh_frac_df$X_inh_frac[i], 
+               y = -Inf, yend = rab27a_cm_ratio, , color = cb_pal[i]) +  
+      annotate("point", x = rab27a_inh_frac_df$X_inh_frac[i], y = rab27a_cm_ratio, 
+               size = 5, pch = 21, fill = cb_pal[i], color = "black")
+    
+  }
+  
+}
+
+# save plot
+ggsave(out_png("X_18h_v_inh_frac_beta_rab27a"),
+       X_18h_v_inh_frac_beta_rab27a, width = 6, height = 4)
+
+X_18h_v_inh_frac_beta_rab27a
+```
+
+
+
+
+##### Annotate all siRNAs - expt ratios only
+
+```{r}
+X_18h_v_inh_frac_beta_annot_4 <- X_18h_v_inh_frac_beta +
+  geom_hline(yintercept = rab27a_cm_ratio, lty = 1) +
+  geom_hline(yintercept = stx3_cm_ratio, lty = 3) +
+  geom_hline(yintercept = stx6_cm_ratio, lty = 2) +
+  geom_hline(yintercept = vamp3_cm_ratio, lty = 4) +
+  annotate("text", x = 0.4, y = rab27a_cm_ratio + .05, label = "siRAB27a", size = 6) +
+  annotate("text", x = 0.23, y = stx3_cm_ratio - .05, label = "siSTX3", size = 6) +
+  annotate("text", x = 0.57, y = stx6_cm_ratio - .05, label = "siSTX6", size = 6) +
+  annotate("text", x = 0.12, y = vamp3_cm_ratio + .05, label = "siVAMP3", size = 6) +
+  scale_y_continuous(expand = c(.05, .05))
+
+# save plot
+ggsave(out_png("X_18h_v_inh_frac_beta_annot_4"),
+       X_18h_v_inh_frac_beta_annot_4, width = 6, height = 4)
+
+X_18h_v_inh_frac_beta_annot_4
+```
+
+#### Intracellular
+
+```{r}
+I_18h_v_inh_frac_beta <- Y_18h %>%
+  filter(param_altered == "beta") %>%
+  ggplot(aes(inh_frac, I_norm, col = base_beta)) +
+  geom_line(linewidth = 2) +
+  theme_paper +
+  xlab(TeX(r'(Fraction inhibition of $\beta$)')) +
+  ylab(TeX(r'($I_{18h}$ (Normalized))'))  +
+  scale_color_manual(values = cb_pal) +
+  scale_y_continuous(limits = c(0,3.5), expand = c(0.01,0.01)) +
+  scale_x_continuous(expand = c(0.01,0.01)) +
+  labs(color = TeX(r'(Base $\beta$)')) +
+  theme(legend.position = "right")
+
+# save plot
+ggsave(out_png("I_18h_v_inh_frac_beta_nonotes"),
+       I_18h_v_inh_frac_beta, width = 6, height = 4)
+
+I_18h_v_inh_frac_beta
+```
+
+##### Annotate VAMP3
+
+```{r}
+I_18h_v_inh_frac_beta_vamp3 <- I_18h_v_inh_frac_beta +
+  geom_hline(yintercept = vamp3_lys_ratio, lty = 4) +
+  annotate("text", x = 0.12, y = vamp3_lys_ratio - .15, label = "siVAMP3", size = 6)
+
+# save plot
+ggsave(out_png("I_18h_v_inh_frac_beta_vamp3"),
+       I_18h_v_inh_frac_beta_vamp3, width = 6, height = 4)
+
+I_18h_v_inh_frac_beta_vamp3
+```
+
+##### Annotate STX3
+
+```{r}
+I_18h_v_inh_frac_beta_stx3 <- I_18h_v_inh_frac_beta +
+  geom_hline(yintercept = stx3_lys_ratio, lty = 3) +
+  annotate("text", x = 0.23, y = stx3_lys_ratio + .15, label = "siSTX3", size = 6)
+
+for (i in 1:num_bases) {
+  
+  if(stx3_inh_frac_df$I_inh_frac[i] < 0.99){
+    
+    I_18h_v_inh_frac_beta_stx3 <- I_18h_v_inh_frac_beta_stx3 +
+    annotate("segment", x = stx3_inh_frac_df$I_inh_frac[i], xend = stx3_inh_frac_df$I_inh_frac[i], 
+           y = -Inf, yend = stx3_lys_ratio, , color = cb_pal[i]) +  
+    annotate("point", x = stx3_inh_frac_df$I_inh_frac[i], y = stx3_lys_ratio, 
+             size = 5, pch = 21, fill = cb_pal[i], color = "black")
+  }
+}
+
+# save plot
+ggsave(out_png("I_18h_v_inh_frac_beta_stx3"),
+       I_18h_v_inh_frac_beta_stx3, width = 6, height = 4)
+
+I_18h_v_inh_frac_beta_stx3
+```
+
+##### Annotate STX6
+
+```{r}
+I_18h_v_inh_frac_beta_stx6 <- I_18h_v_inh_frac_beta +
+  geom_hline(yintercept = stx6_lys_ratio, lty = 2) +
+  annotate("text", x = 0.57, y = stx6_lys_ratio + .15, label = "siSTX6", size = 6) 
+
+# save plot
+ggsave(out_png("I_18h_v_inh_frac_beta_stx6"),
+       I_18h_v_inh_frac_beta_stx6, width = 6, height = 4)
+
+I_18h_v_inh_frac_beta_stx6
+```
+
+##### Annotate RAB27a
+
+```{r}
+I_18h_v_inh_frac_beta_rab27a <- I_18h_v_inh_frac_beta +
+  geom_hline(yintercept = rab27a_lys_ratio, lty = 1) +
+  annotate("text", x = 0.4, y = rab27a_lys_ratio - .15, label = "siRAB27a", size = 6) 
+
+# save plot
+ggsave(out_png("I_18h_v_inh_frac_beta_rab27a"),
+       I_18h_v_inh_frac_beta_rab27a, width = 6, height = 4)
+
+I_18h_v_inh_frac_beta_rab27a
+```
+
+
+
+
+##### Annotate all siRNAs - expt ratios only
+
+```{r}
+I_18h_v_inh_frac_beta_annot_4 <- I_18h_v_inh_frac_beta +
+  geom_hline(yintercept = rab27a_lys_ratio, lty = 1) +
+  geom_hline(yintercept = stx3_lys_ratio, lty = 3) +
+  geom_hline(yintercept = stx6_lys_ratio, lty = 2) +
+  geom_hline(yintercept = vamp3_lys_ratio, lty = 4) +
+  annotate("text", x = 0.5, y = rab27a_lys_ratio + .15, label = "siRAB27a", size = 6) +
+  annotate("text", x = 0.35, y = stx3_lys_ratio + .15, label = "siSTX3", size = 6) +
+  annotate("text", x = 0.75, y = stx6_lys_ratio - .15, label = "siSTX6", size = 6) +
+  annotate("text", x = 0.2, y = vamp3_lys_ratio + .15, label = "siVAMP3", size = 6) +
+  scale_y_continuous(limits = c(-0.2, 3.5), expand = c(0,0)) 
+
+
+# save plot
+ggsave(out_png("I_18h_v_inh_frac_beta_annot_4"),
+       I_18h_v_inh_frac_beta_annot_4, width = 6, height = 4)
+
+I_18h_v_inh_frac_beta_annot_4
+```
+
+#### X, I combined
+
+##### All siRNAs
+
+
+```{r}
+X_I_18h_beta_inh_annot <- (X_18h_v_inh_frac_beta_annot_4 + theme(legend.position = "none")) /
+  (I_18h_v_inh_frac_beta_annot_4 + theme(legend.position = "bottom"))
+
+# save plot
+ggsave(out_png("X_I_18h_beta_inh_annot"),
+       X_I_18h_beta_inh_annot, width = 6, height = 8)
+
+X_I_18h_beta_inh_annot
+```
+
+##### VAMP3
+
+```{r}
+vamp3_18h_beta_inh_annot <- (X_18h_v_inh_frac_beta_vamp3 + theme(legend.position = "none")) /
+  (I_18h_v_inh_frac_beta_vamp3 + theme(legend.position = "bottom"))
+
+# save plot
+ggsave(out_png("vamp3_18h_beta_inh_annot"),
+       vamp3_18h_beta_inh_annot, width = 6, height = 8)
+
+vamp3_18h_beta_inh_annot
+```
+
+
+
+
+##### STX3
+
+```{r}
+stx3_18h_beta_inh_annot <- (X_18h_v_inh_frac_beta_stx3 + theme(legend.position = "none")) /
+  (I_18h_v_inh_frac_beta_stx3 + theme(legend.position = "bottom"))
+
+# save plot
+ggsave(out_png("stx3_18h_beta_inh_annot"),
+       stx3_18h_beta_inh_annot, width = 6, height = 8)
+
+stx3_18h_beta_inh_annot
+```
+
+
+##### STX6
+
+```{r}
+stx6_18h_beta_inh_annot <- (X_18h_v_inh_frac_beta_stx6 + theme(legend.position = "none")) /
+  (I_18h_v_inh_frac_beta_stx6 + theme(legend.position = "bottom"))
+
+# save plot
+ggsave(out_png("stx6_18h_beta_inh_annot"),
+       stx6_18h_beta_inh_annot, width = 6, height = 8)
+
+stx6_18h_beta_inh_annot
+```
+
+
+##### RAB27a
+
+
+```{r}
+rab27a_18h_beta_inh_annot <- (X_18h_v_inh_frac_beta_rab27a + theme(legend.position = "none")) /
+  (I_18h_v_inh_frac_beta_rab27a + theme(legend.position = "bottom"))
+
+# save plot
+ggsave(out_png("rab27a_18h_beta_inh_annot"),
+       rab27a_18h_beta_inh_annot, width = 6, height = 8)
+
+rab27a_18h_beta_inh_annot
+```
+
+
+### Combined chem inh figures
+
+#### Fold change vs inh frac, 18h and 72h
+
+```{r}
+p1 <- inhfrac_abgd_xi_grid_18h +
+  ggtitle("18h") +
+  theme(legend.position = "none")
+
+p2 <- inhfrac_abgd_xi_grid_72h +
+  ggtitle("72h") +
+  theme(legend.text = element_text(size = 18),
+        legend.title = element_text(size = 20),
+        legend.key.width = unit(2, "cm")) +
+  guides(color = guide_legend(override.aes = list(linewidth = 2)))
+
+combo_fig_18h_72h <- p1 / p2 
+
+ggsave(out_png("combo_fig_18h_72h"),
+       combo_fig_18h_72h, width = 12, height = 12)
+
+combo_fig_18h_72h
+```
+
+#### Comparison to experimental data
+
+
+
+
+```{r}
+combo_fig_gen_inh_vary_base <- (X_18h_v_inh_frac_beta_stx3 + 
+   ggtitle("STX3") +
+   theme(legend.position = "none")) + 
+  (X_18h_v_inh_frac_beta_rab27a + 
+     ggtitle("RAB27a") +
+     theme(legend.position = "none")) +
+  (X_18h_v_inh_frac_beta_stx6 + 
+     ggtitle("STX6") +
+     theme(legend.position = "none")) +
+  (X_18h_v_inh_frac_beta_vamp3 + ggtitle("VAMP3") +
+     theme(legend.position = "none")) +
+  (I_18h_v_inh_frac_beta_stx3 + theme(legend.position = "none")) +
+  (I_18h_v_inh_frac_beta_rab27a + theme(legend.position = "none")) +
+  (I_18h_v_inh_frac_beta_stx6 + theme(legend.position = "none")) +
+  (I_18h_v_inh_frac_beta_vamp3 + theme(legend.position = "none")) +
+  plot_layout(ncol = 4, axis_titles = "collect")
+
+ggsave(out_png("combo_fig_gen_inh_vary_base"),
+       combo_fig_gen_inh_vary_base, width = 20, height = 8)
+
+combo_fig_gen_inh_vary_base
+```
+
+
+
+
+```{r}
+p1 <- bref_18h_beta_inh_annot +
+  theme(legend.position = "none")
+
+p2 <- chp_18h_beta_inh_annot +
+  theme(legend.position = "none")
+
+p3 <- tat_18h_beta_inh_annot +
+  theme(legend.position = "none")
+
+p4 <- chq_18h_gamma_inh_annot +
+  theme(legend.position = "none")
+
+p1 + p2 + p3 + p4 + plot_layout(ncol = 4)
+```
+
+
+
+
+
+
+
+
+

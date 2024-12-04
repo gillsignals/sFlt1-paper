@@ -1,0 +1,620 @@
+---
+title: "sFLT1 ODE modeling - Analysis"
+author: "Amy Gill"
+date: "2023-08-14"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+This file analyzes data from optimization of the 2 equation sFLT1 ODE model to 1 pulse-chase and 2 constitutive secretion (Kinghorn, Hornig) time course datasets. These data were imported using the script "sFlt-model/analysis-R/draft/01_ode_model/ode_hjk_opt_import.Rmd".
+
+The optimization was performed 8/14/23 using the Matlab script "sFlt-model/01_ode_model/ode_driver.m" with following options: 
+
+run_mode = "opt_100";
+jung_cost_option = "omit_last_Sx_relative";
+hornig_cost_option = "relative_omit3h";
+kinghorn_cost_option = "all_pts_relative";
+num_param_sets = 100;    (# per candidate model)
+
+Optimizing to summary statistics only (mean at each time point) for Kinghorn optimization.
+
+This optimization uses 4 species (I, I_deg, X, X_deg) and optimizes 7 parameters ($\alpha$, $\beta$, $\gamma$, $\delta$, $\epsilon$, $\kappa$, $\tau$) by calculating absolute cost in comparison to all of the following datasets:
+
+- Jung X (normalized to 8h)
+- Jung I (normalized to 0h)
+- Hornig basal X concentration (absolute, ng/mL -> #/cell)
+- Kinghorn X (normalized to 24h)
+- Kinghorn I (normalized to 0h)
+
+
+## Setup
+
+### Common setup
+
+```{r}
+# load packages, define helper functions, define color palettes, load experimental data
+source("../../helper_scripts/setup.R")
+```
+
+### Add "big" theme
+
+```{r}
+theme_big <- theme1 +
+  theme(legend.position = "bottom",
+        axis.title.y = element_text(angle = 0, vjust = 0.5, size = 16),
+        axis.text = element_text(size = 10),
+        legend.title = element_text(size = 14),
+        legend.text = element_text(size = 10))
+```
+
+
+### Set output file
+
+```{r}
+# define folder where output will be saved (for example, png images from ggsave)
+outfile_prefix = "../../../saved-figs/01_ode_model/"
+dir.create(outfile_prefix, recursive = TRUE)
+```
+
+### Import optimization runs
+
+```{r}
+# load optimization of ODEs to Hornig, Jung, Kinghorn time course datasets
+# (if file is not present, run "ode_hjk_opt_import.Rmd" to create it)
+load("../../../saved-data/01_ode_model/pulsechase_constitutive_opt_sims.rda")
+```
+
+### Plot experimental data
+
+Provides examples for how to plot these datasets
+
+#### Hornig X
+
+```{r}
+hornig %>%
+    ggplot(aes(nominal_time, X_norm_24)) +
+    geom_point(size = 5, color = cb_pal[2]) +
+    geom_line(linewidth = 1, color = cb_pal[2]) +
+    xlab("Time (h)") +
+    ggtitle("Extracellular sFLT1") +
+    theme1 +
+    scale_x_continuous(breaks = seq(0, 72, by = 24)) +
+  scale_y_continuous(name = "Fold change vs 24h",
+                     sec.axis = sec_axis(trans = ~.*hornig_X_numcell_24,
+                                         name = "#/cell"))
+```
+
+#### Jung I, X
+
+```{r}
+# plot lysate fold change over time
+p1 <- jung %>%
+  ggplot(aes(time, lysate_fc)) +
+  geom_point(size = 5, color = cb_pal[2]) +
+  geom_line(size = 1, color = cb_pal[2]) +
+  xlab("Time (h)") +
+  ylab("Fold change vs 0h") +
+  ggtitle("Intracellular sFLT1 (I)") +
+  scale_x_continuous(breaks = seq(0, 10, by = 2)) +
+  theme1
+
+# plot media fraction maximum over time
+p2 <- jung %>%
+  ggplot(aes(time, media_frac_max)) +
+  geom_point(size = 5, color = cb_pal[2]) +
+  geom_line(size = 1, color = cb_pal[2]) +
+  xlab("Time (h)") +
+  ylab("Fold change vs 8h") +
+  ggtitle("Extracellular sFLT1 (X)") +
+  scale_x_continuous(breaks = seq(0, 10, by = 2)) +
+  theme1
+
+jung_expt_timecourse <- p2 / p1
+
+jung_expt_timecourse
+```
+
+#### Kinghorn I, X
+
+Important: values are mean values
+
+```{r}
+# plot lysate fold change over time
+k_p1 <- kinghorn %>%
+  ggplot(aes(time, I_fc_0h)) +
+  geom_point(size = 5, color = cb_pal[2]) +
+  geom_line(size = 1, color = cb_pal[2]) +
+  xlab("Time (h)") +
+  ylab("Fold change vs 0h") +
+  ggtitle("Intracellular sFLT1 (I)") +
+  scale_x_continuous(breaks = seq(0, 24, by=4)) +
+  theme1 +
+  ylim(0,1.5)
+
+# plot media fraction maximum over time
+k_p2 <- kinghorn %>%
+  ggplot(aes(time, X_frac_24h)) +
+  geom_point(size = 5, color = cb_pal[2]) +
+  geom_line(size = 1, color = cb_pal[2]) +
+  xlab("Time (h)") +
+  ylab("Fold change vs 24h") +
+  ggtitle("Extracellular sFLT1 (X)") +
+  scale_x_continuous(breaks = seq(0, 24, by=4)) +
+  theme1
+
+kinghorn_expt_timecourse <- k_p2 / k_p1
+
+kinghorn_expt_timecourse
+```
+
+#### Constitutive datasets combined
+
+```{r}
+hornig %>%
+    ggplot(aes(nominal_time, X_norm_24)) +
+    geom_point(size = 5, color = cb_pal[2]) +
+    geom_line(linewidth = 1, color = cb_pal[2]) +
+  geom_point(data = kinghorn, aes(time, X_frac_24h), size = 5, color = cb_pal[7]) +
+  geom_line(data = kinghorn, aes(time, X_frac_24h), linewidth = 1, color = cb_pal[7]) +
+    xlab("Time (h)") +
+    ggtitle("Extracellular sFLT1") +
+    theme1 +
+    scale_x_continuous(breaks = seq(0, 72, by = 24)) +
+  scale_y_continuous(name = "Fold change vs 24h",
+                     sec.axis = sec_axis(trans = ~.*hornig_X_numcell_24,
+                                         name = "#/cell"))
+```
+
+## Preprocessing
+
+### Format data frames for analysis
+
+```{r}
+# param_df: a 4-column data frame
+# run = run number 1:1000
+# parameter = factor, parameter definition(alpha, beta, gamma, delta)
+# init_opt = factor, INIT = initial guess, OPT = optimized value
+# value = parameter value
+param_df <- meta_df %>%
+  select(run:OPT_delta) %>%
+  pivot_longer(INIT_alpha:OPT_delta, names_to = "parameter", values_to = "value") %>%
+  separate(parameter, into = c("init_opt", "parameter"), sep = "_") %>%
+  mutate(init_opt = ifelse(init_opt == "INIT", "initial", "optimal"),
+                           init_opt = factor(init_opt),
+         parameter = factor(parameter,
+                            levels = c("alpha", "beta", "gamma", "delta"))) 
+
+# add cost to param_df
+param_df <- meta_df %>%
+  select(run, cost = total_cost) %>%
+  right_join(param_df, by = "run")
+
+# extract parameter names
+param_names <- levels(param_df$parameter)
+```
+
+### Cost distribution
+
+#### Density plot
+
+```{r}
+# create function to plot density function of cost
+plot_cost_distr_density <- function(df){
+  df %>%
+    ggplot(aes(total_cost, ..scaled..)) +
+    geom_density(fill = cb_pal[3]) +
+    #scale_x_log10() +
+    #scale_x_continuous(trans = "log10", breaks = 10^(-2:5)) +
+    theme1 +
+    xlab("Sum of squared difference") +
+    ylab("Scaled density")
+}
+
+# plot cost distribution
+cost_distr <- plot_cost_distr_density(meta_df) #+
+    #ggtitle("Cost function values for optimal parameters - all fits")
+  
+  
+cost_distr
+```
+
+All n=100 optimization runs for the ODE model converged to the same cost (mean 1.591, SD 2.153e-7), defined as the sum of squared differences between simulated values and experimental observations at fixed time points.
+
+(better to just report stats than to show the SSD density plot above or violin plot below)
+
+```{r}
+mean(meta_df$total_cost)
+sd(meta_df$total_cost)
+```
+
+#### Violin plot
+
+(similar to cost density plot, better to just report stats)
+
+```{r}
+# create function to make violin plot of cost distribution
+plot_cost_violin <- function(df){
+  df %>%
+    ggplot(aes(factor(" "), total_cost)) +
+    geom_violin(scale = "width", fill = cb_pal[2]) +   # not trimming b/c hard min value 
+    geom_boxplot(width = 0.3, fill = "white") +
+    #scale_y_continuous(trans = "log10", breaks = 10^(-2:5)) +
+    xlab("") +
+    ylab("Sum of squared difference") +
+    coord_flip() +
+    theme1
+}
+
+cost_violin <- plot_cost_violin(meta_df) #+
+  #ggtitle("Violin plot of cost function values for optimal parameters")
+
+cost_violin
+```
+
+## Time courses with experimental data
+
+### Add fill color columns to experimental data
+
+```{r}
+jung <- jung %>%
+  mutate(fill_col = factor("Jung", levels = c("Jung", "Kinghorn", "Hornig")))
+
+kinghorn <- kinghorn %>%
+  mutate(fill_col = factor("Kinghorn", levels = c("Jung", "Kinghorn", "Hornig")))
+
+hornig <- hornig %>%
+  mutate(fill_col = factor("Hornig", levels = c("Jung", "Kinghorn", "Hornig")))
+```
+
+### Jung X
+
+```{r}
+jung_plot_X_frac_timecourse <- function(df){
+  df %>%
+    ggplot(aes(t, X_frac)) +
+    annotate("rect", xmin = -20/60, xmax = 0, ymin = -Inf, ymax = Inf, fill = cb_pal[6]) +
+    #annotate("rect", xmin = 0, xmax = Inf, ymin = -Inf, ymax = Inf, fill = cb_pal[6]) +
+    geom_line(aes(group = run), alpha = 0.1, size = 1) +
+        geom_vline(xintercept = 0) +
+    geom_vline(xintercept = -20/60) +
+    #annotate("text", x = -0.75, y = 0.55, label = "Start pulse", angle = 90, size = 6) +
+    #annotate("text", x = 0.35, y = 0.75, label = "Start chase", angle = 90, size = 6) +
+    annotate("segment", x = -0.7, xend = -0.17, y = 1.05, yend = 0.65, size = 0.5) +
+    annotate("segment", x = 0.05, xend = 9.95, y = 1.14, yend = 1.14, 
+             lty = 2, size = 0.5) +
+    annotate("rect", xmin = 2.9, xmax = 5.1, ymin = 1.11, ymax = 1.19, fill = "white", color = "white") +
+    annotate("text", x = -0.65, y = 1.15, label = "P", size = 5.5, angle = 0, fontface = "bold") +
+    annotate("text", x = 4, y = 1.15, label = "chase", size = 7, family = "serif") +
+    geom_point(data = jung, aes(time, media_frac_max, fill = fill_col),
+               size = 5, shape = 21, color = "white",
+               show.legend = TRUE) +
+    scale_fill_manual(labels = c("Jung", "Kinghorn", "Hornig"),
+                    values = c(cb_pal[5], cb_pal[2], cb_pal[7]), drop = FALSE) +  
+    labs(fill = "Experimental data") +    
+    scale_y_continuous(limits = c(-0.05, 1.2), breaks = seq(0, 1, by = 0.25)) +
+    scale_x_continuous(limits = c(-1, 10), breaks = seq(0, 10, by = 2), expand = c(0.01,0.01)) +
+    #scale_color_viridis_b() +
+    xlab("Time (h)") +
+    ylab(TeX(r'($\frac{X}{X_{8h}}$)')) +
+
+    #ylab("X (Normalized to 8h)") +
+    theme_big
+}
+
+jung_opt_X_timecourse <- jung_plot_X_frac_timecourse(pulsechase_full_df) #+
+  #ggtitle("Jung extracellular sFLT1 (X) - All fits")
+
+jung_opt_X_timecourse_no_legend <- jung_plot_X_frac_timecourse(pulsechase_full_df) +
+  theme(legend.position = "none")
+
+jung_opt_X_timecourse_poster <- jung_opt_X_timecourse + theme_poster
+
+# save plot
+ggsave(out_png("jung_opt_X_timecourse_big"),
+       jung_opt_X_timecourse, width = 4, height = 3)
+
+# save plot
+ggsave(out_png("jung_opt_X_timecourse_poster"),
+       jung_opt_X_timecourse_poster, width = 4, height = 3)
+
+# save plot without legend
+ggsave(out_png("jung_opt_X_timecourse_big_nolegend"),
+               jung_opt_X_timecourse_no_legend, width = 4, height = 3)
+
+jung_opt_X_timecourse_poster
+```
+
+### Jung I
+
+```{r}
+jung_plot_I_fc_timecourse <- function(df){
+  df %>%
+    ggplot(aes(t, I_fc)) +
+    annotate("rect", xmin = -20/60, xmax = 0, ymin = -Inf, ymax = Inf, fill = cb_pal[6]) +
+    geom_line(aes(group = run), alpha = 0.1, size = 1) +
+        geom_vline(xintercept = 0) +
+    geom_vline(xintercept = -20/60) +
+    annotate("segment", x = -0.7, xend = -0.2, y = 1.05, yend = 0.7, size = 0.5) +
+    annotate("segment", x = 0.05, xend = 9.95, y = 0, yend = 0, lty = 2, size = 0.5) +
+    annotate("rect", xmin = 2.9, xmax = 5.1, ymin = -.02, ymax = .02, fill = "white", color = "white") +
+    annotate("text", x = -0.65, y = 1.15, label = "P", size = 5.5, angle = 0, fontface = "bold") +
+    annotate("text", x = 4, y = 0.01, label = "chase", size = 7, family = "serif") +
+    geom_point(data = jung, aes(time, lysate_fc, fill = fill_col),
+               size = 5, shape = 21, color = "white", show.legend = TRUE) +
+    scale_fill_manual(labels = c("Jung", "Kinghorn", "Hornig"),
+                    values = c(cb_pal[5], cb_pal[2], cb_pal[7]), drop = FALSE) +  
+  labs(fill = "Experimental data") +
+    
+    xlab("Time (h)") +
+    ylab(TeX(r'($\frac{I}{I_{0h}}$)')) +
+    scale_y_continuous(limits = c(-0.05, 1.2), breaks = seq(0, 1, by = 0.25)) +
+    scale_x_continuous(limits = c(-1, 10), breaks = seq(0, 10, by = 2), expand = c(0.01,0.01)) +
+    theme_big}
+
+jung_opt_I_timecourse <- jung_plot_I_fc_timecourse(pulsechase_full_df)
+    #ggtitle("Jung intracellular sFlt1 (I) - All fits") +
+    
+jung_opt_I_timecourse_nolegend <- jung_opt_I_timecourse +
+  theme(legend.position = "none")
+
+jung_opt_I_timecourse_poster <- jung_opt_I_timecourse +
+  theme_poster
+
+# save plot
+ggsave(out_png("jung_opt_I_timecourse_big"),
+       jung_opt_I_timecourse, width = 4, height = 3)
+
+# save plot
+ggsave(out_png("jung_opt_I_timecourse_big_nolegend"),
+       jung_opt_I_timecourse_nolegend, width = 4, height = 3)
+
+# save plot
+ggsave(out_png("jung_opt_I_timecourse_poster"),
+       jung_opt_I_timecourse_poster, width = 4, height = 3)
+
+jung_opt_I_timecourse_poster
+```
+
+### Kinghorn X
+
+All optimized parameter sets produce an identical extracellular time course.
+
+```{r}
+kinghorn_opt_X_timecourse <- constitutive_full_df %>%
+  ggplot(aes(t, X_frac)) +
+    geom_line(aes(group = run), size = 1, alpha = 0.25) +
+  geom_point(data = kinghorn, aes(time, X_frac_24h, fill = fill_col), size = 5, 
+               shape = 21, color = "white") +
+    scale_fill_manual(labels = c("Jung", "Kinghorn", "Hornig"),
+                    values = c(cb_pal[5], cb_pal[2], cb_pal[7]), drop = FALSE) +  
+    labs(fill = "Experimental data") +
+    xlab("Time (h)") +
+      scale_x_continuous(breaks = seq(0, 72, by = 24)) +
+    ylab(TeX(r'($\frac{X}{X_{24h}}$)')) +
+    theme_big
+
+kinghorn_opt_X_timecourse_nolegend <- kinghorn_opt_X_timecourse +
+  theme(legend.position = "none")
+
+kinghorn_opt_X_timecourse_poster <- kinghorn_opt_X_timecourse + theme_poster
+
+# save plot
+ggsave(out_png("kinghorn_opt_X_timecourse_big"),
+       kinghorn_opt_X_timecourse, width = 4, height = 3)
+
+# save plot
+ggsave(out_png("kinghorn_opt_X_timecourse_big_nolegend"),
+       kinghorn_opt_X_timecourse_nolegend, width = 4, height = 3)
+
+# save plot
+ggsave(out_png("kinghorn_opt_X_timecourse_poster"),
+       kinghorn_opt_X_timecourse_poster, width = 4, height = 3)
+
+kinghorn_opt_X_timecourse_poster
+```
+
+### Kinghorn I
+
+In constitutive simulations, I remains at steady state for the entire experimentally observed period.
+
+```{r}
+kinghorn_opt_I_timecourse <- constitutive_full_df %>%
+  ggplot(aes(t, I_fc)) +
+    geom_line(aes(group = run), size = 1, alpha = 0.25) +
+  geom_point(data = kinghorn, aes(time, I_fc_0h, fill = fill_col), size = 5, 
+               shape = 21, color = "white") +
+  scale_fill_manual(labels = c("Jung", "Kinghorn", "Hornig"),
+                    values = c(cb_pal[5], cb_pal[2], cb_pal[7]), drop = FALSE) +  
+  labs(fill = "Experimental data") +
+  xlab("Time (h)") +
+    ylab(TeX(r'($\frac{I}{I_{0h}}$)')) +
+      scale_x_continuous(breaks = seq(0, 72, by = 24)) +
+
+    ylim(c(0, 1.5)) +
+    theme_big
+
+kinghorn_opt_I_timecourse_poster <- kinghorn_opt_I_timecourse + theme_poster
+
+# save plot
+ggsave(out_png("kinghorn_opt_I_timecourse"),
+       kinghorn_opt_I_timecourse, width = 4, height = 3)
+
+ggsave(out_png("kinghorn_opt_I_timecourse_poster"),
+       kinghorn_opt_I_timecourse_poster)
+
+kinghorn_opt_I_timecourse_poster
+```
+
+
+### Hornig X
+
+```{r}
+hornig_plot_X_timecourse_numcell <- function(df){
+  df %>%
+    ggplot(aes(t, X / conv_factor_numcell_to_ngml)) +
+    geom_line(aes(group = run), size = 1, alpha = 0.25) +
+    geom_point(data = hornig, aes(nominal_time, X_numcell, fill = fill_col), size = 5, 
+               shape = 21, color = "white") +
+    scale_fill_manual(labels = c("Jung", "Kinghorn", "Hornig"),
+                    values = c(cb_pal[5], cb_pal[2], cb_pal[7]), drop = FALSE) +  
+  labs(fill = "Experimental data") +
+        scale_x_continuous(breaks = seq(0, 72, by = 24)) +
+
+    xlab("Time (h)") +
+    ylab("X\n(#/cell)") +
+    theme_big
+}
+
+hornig_opt_X_timecourse_numcell <- hornig_plot_X_timecourse_numcell(constitutive_full_df) #+
+  #ggtitle("Hornig extracellular sFLT1 (X) - All fits")
+
+hornig_opt_X_timecourse_numcell_nolegend <- hornig_opt_X_timecourse_numcell +
+  theme_big +
+  theme(legend.position = "none")
+
+hornig_opt_X_timecourse_poster <- hornig_opt_X_timecourse_numcell + theme_poster
+
+ggsave(out_png("hornig_opt_X_timecourse_numcell_nolegend"),
+       hornig_opt_X_timecourse_numcell_nolegend, width = 4, height = 3)
+
+ggsave(out_png("hornig_opt_X_timecourse_numcell_poster"),
+       hornig_opt_X_timecourse_poster, width = 4, height = 3)
+
+hornig_opt_X_timecourse_poster
+```
+
+The simulations track well with the data through 48h, but the 72h point is not well fit.
+
+### Hornig I
+
+```{r}
+hornig_plot_I_timecourse_numcell <- function(df){
+  df %>%
+    ggplot(aes(t, I)) +
+    geom_line(aes(group = run), size = 1, alpha = 0.25) +
+    xlab("Time (h)") +
+    ylab("I\n(#/cell)") +
+    theme_big +
+    scale_x_continuous(breaks = seq(0, 72, by = 24)) +
+    scale_y_log10(limits = c(5e4, 5e7))
+}
+
+hornig_opt_I_timecourse_numcell <- hornig_plot_I_timecourse_numcell(constitutive_full_df) +
+  theme_paper +
+  theme(legend.position = "none")
+#  ggtitle("Hornig intracellular sFLT1 (I) - All fits")
+
+ggsave(out_png("hornig_opt_I_timecourse_numcell"),
+       hornig_opt_I_timecourse_numcell, width = 4, height = 3)
+
+hornig_opt_I_timecourse_numcell
+```
+
+The absolute number of intracellular sFLT1 varies across parameter sets within a range of 1.9e5 - 2.1e7 molecules per cell, with a median of 7.6e5 #/cell.
+
+```{r}
+range(constitutive_full_df$I)
+median(constitutive_full_df$I)
+```
+
+
+### Constitutive combo X
+
+```{r}
+const_opt_X_timecourse_combo <- constitutive_full_df %>%
+    ggplot(aes(t, X / X_24)) +
+    geom_line(aes(group = run), size = 1, alpha = 0.25) +
+    geom_point(data = hornig, aes(nominal_time, X_norm_24, fill = fill_col), 
+               size = 5, shape = 21, color = "white") +
+#    geom_line(data = hornig, aes(nominal_time, X_norm_24), linewidth = 1, color = cb_pal[2]) 
+  geom_point(data = kinghorn, aes(time, X_frac_24h, fill = fill_col), 
+             size = 5, shape = 21, color = "white", show.legend = FALSE) +
+#  geom_line(data = kinghorn, aes(time, X_frac_24h), linewidth = 1, color = cb_pal[7]) +
+  scale_fill_manual(labels = c("Jung", "Kinghorn", "Hornig"),
+                    values = c(cb_pal[5], cb_pal[2], cb_pal[7]), drop = FALSE) +  
+  labs(fill = "Experimental data") +
+  xlab("Time (h)") +
+    theme_paper +
+    scale_x_continuous(breaks = seq(0, 72, by = 24)) +
+  scale_y_continuous(name = TeX(r'($\frac{X}{X_{24h}}$)'),
+                     sec.axis = sec_axis(trans = ~.*hornig_X_numcell_24,
+                                         name = "X\n(#/cell)")) +
+  theme(axis.title.y.right = element_text(angle = 0, vjust = 0.5, size = 16))
+
+const_opt_X_timecourse_combo
+```
+
+
+```{r}
+ggsave(out_png("const_opt_X_timecourse_combo_big"),
+       const_opt_X_timecourse_combo, width = 4, height = 3)
+
+const_opt_X_timecourse_combo_poster <- const_opt_X_timecourse_combo + theme_poster
+
+ggsave(out_png("const_opt_X_timecourse_combo_poster"),
+       const_opt_X_timecourse_combo_poster, width = 4, height = 3)
+
+const_opt_X_timecourse_combo_poster
+```
+
+### Combined figure
+
+```{r}
+p1 <- jung_opt_X_timecourse
+p2 <- jung_opt_I_timecourse
+p3 <- const_opt_X_timecourse_combo
+p4 <- kinghorn_opt_I_timecourse
+
+ode_combo_plot <- (p1 + p3) / (p2 + p4) +
+  plot_layout(guides = "collect") &
+  theme(plot.title = element_blank(), 
+        legend.position = "bottom",
+        axis.title.x = element_text(size = 24),
+        axis.title.y = element_text(angle = 0, vjust = 0.5, size = 24),
+        axis.title.y.right = element_text(angle = 0, vjust = 0.5, size = 24),
+        axis.text = element_text(size = 20),
+        legend.title = element_text(size = 24, face = "bold"),
+        legend.text = element_text(size = 24))
+
+ggsave(out_png("ode_combo_plot"),
+       ode_combo_plot, width = 12, height = 8)
+
+ode_combo_plot
+```
+
+#### Poster version
+
+```{r}
+p1 <- jung_opt_X_timecourse_poster
+p2 <- jung_opt_I_timecourse_poster
+p3 <- const_opt_X_timecourse_combo_poster
+p4 <- kinghorn_opt_I_timecourse_poster
+
+ode_combo_plot_poster <- (p1 + p3) / (p2 + p4) +
+  plot_layout(guides = "collect") &
+  theme(plot.title = element_blank(), 
+        legend.position = "bottom",
+        axis.title.x = element_text(size = 20),
+        axis.title.y = element_text(angle = 0, vjust = 0.5, size = 20),
+        axis.title.y.right = element_text(angle = 0, vjust = 0.5, size = 20),
+        axis.text = element_text(size = 14),
+        legend.title = element_text(size = 18, face = "bold"),
+        legend.text = element_text(size = 18))
+
+ggsave(out_png("ode_combo_plot_poster"),
+       ode_combo_plot_poster, width = 9, height = 6)
+
+ode_combo_plot_poster
+```
+
+
+
+
+
+
+

@@ -1,0 +1,266 @@
+---
+title: "sFLT1 ODE modeling - Import simulation data"
+author: "Amy Gill"
+date: "2023-08-14"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+This file analyzes data from optimization of the 2 equation sFLT1 ODE model to 1 pulse-chase and 2 constitutive secretion (Kinghorn, Hornig) time course datasets. These data will be analyzed using the script "sFlt-model/analysis-R/draft/01_ode_model/ode_opt_workspace_2023-08-14.Rmd".
+
+The optimization was performed 8/14/23 using the Matlab script "sFlt-model/01_ode_model/ode_driver.m" with following options: 
+
+run_mode = "opt_100";
+jung_cost_option = "omit_last_Sx_relative";
+hornig_cost_option = "relative_omit3h";
+kinghorn_cost_option = "all_pts_relative";
+num_param_sets = 100;    (# per candidate model)
+
+Optimizing to summary statistics only (mean at each time point) for Kinghorn optimization.
+
+This optimization uses 4 species (I, I_deg, X, X_deg) and optimizes 7 parameters ($\alpha$, $\beta$, $\gamma$, $\delta$, $\epsilon$, $\kappa$, $\tau$) by calculating absolute cost in comparison to all of the following datasets:
+
+- Jung X (normalized to 8h)
+- Jung I (normalized to 0h)
+- Hornig basal X concentration (absolute, ng/mL -> #/cell)
+- Kinghorn X (normalized to 24h)
+- Kinghorn I (normalized to 0h)
+
+
+## Setup
+
+```{r}
+# load packages, define helper functions, define color palettes, load experimental data
+source("../../helper_scripts/setup.R")
+```
+
+## Import data
+
+### Load files
+
+```{r}
+# specify file names
+param_file_name <- "../../../saved-data/01_ode_model/ode_opt_input.mat"
+opt_file_name <- "../../../saved-data/01_ode_model/hjk_ode_opt.mat"
+
+# import file data
+param_file <- readMat(param_file_name)
+opt_file <- readMat(opt_file_name)
+```
+
+### Extract initial parameter values
+
+```{r}
+# extract the randomly generated parameter sets
+# (cleaner to import the parameter matrix from param_mat, but this is equivalent)
+init_df <- data.frame(alpha = param_file$initial.alpha,
+                      beta = param_file$initial.beta,
+                      gamma = param_file$initial.gamma,
+                      delta = param_file$initial.delta)
+
+# designate these values as initial (rather than optimized)
+names(init_df) <- paste0("INIT_", names(init_df))
+
+# add index to each parameter set
+init_df <- init_df %>%
+  mutate(run = 1:nrow(init_df))
+
+# create tidy version of param_mat
+init_df_tidy <- init_df %>%
+  pivot_longer(INIT_alpha:INIT_delta, names_to = "parameter", values_to = "value") %>%
+  mutate(parameter = factor(str_remove(parameter, "INIT_")))
+```
+
+### Extract species and parameter names, key numbers
+
+```{r}
+# extract parameter names
+param_names <- levels(init_df_tidy$parameter)
+
+# extract species names
+species_names <- str_replace(names(param_file$sp[,,1]), "\\.", "_")
+
+# extract number of parameter sets
+num_param_sets <- param_file$num.param.sets[1,1]
+
+# extract conversion factor to move X concentrations (ng/mL) to corresponding #/cell
+conv_factor_numcell_to_ngml <- param_file$conv.factor.ngml[1,1]
+```
+
+### Extract optimized parameter values
+
+- Optimal parameter values returned by `lsqnonlin` for each optimization run
+- Cost associated with this parameter set (sum of squares returned by `lsqnonlin` using the `resnorm` output argument)
+
+```{r}
+opt_df <- as.data.frame(opt_file$optimal)
+
+# add prefix to denote these are initial values
+names(opt_df) <- paste0("OPT_", param_names)
+
+# add run index and cost
+opt_df <- opt_df %>%
+  mutate(run = 1:nrow(opt_df),
+         cost_hornig_x_ssd = opt_file$hornig.X.cost.ssd,
+         cost_jung_x_ssd = opt_file$jung.X.cost.ssd,
+         cost_jung_i_ssd = opt_file$jung.I.cost.ssd,
+         cost_kinghorn_x_ssd = opt_file$kinghorn.X.cost.ssd,
+         cost_kinghorn_i_ssd = opt_file$kinghorn.I.cost.ssd,
+         total_cost = cost_hornig_x_ssd + cost_jung_x_ssd + cost_jung_i_ssd +
+         cost_kinghorn_x_ssd + cost_kinghorn_i_ssd,
+         log2_cost = log2(total_cost))
+
+opt_df
+```
+
+```{r}
+meta_df <- init_df %>%
+  left_join(opt_df, by = "run") %>%
+  select(run, everything())
+
+meta_df
+```
+
+### Extract time points
+
+```{r}
+# extract Jung time points
+pulsechase_t_all <- opt_file$jung.T.all[,1]
+
+# Extract Hornig time points
+constitutive_t_all <- opt_file$hornig.T.all[,1] # just the first column, since all the same
+```
+
+### Extract time courses
+
+```{r}
+# format data frames of simulated species values for time courses
+make_sim_Y_df <- function(Y_mat){
+  # confirm matrix has correct dimensions - warn if not
+  test_that("matrix has correct dimensions",{
+    expect_equal(dim(Y_mat)[2], length(species_names))
+    expect_equal(dim(Y_mat)[3], num_param_sets)
+    # not checking dim 1 (num time points) bc differs by model
+  })
+  
+  # flatten matrix to data frame of time course data
+  # (this isn't very "R-style", but it works, so tell Hadley to chill)
+  for (i in 1:dim(Y_mat)[3]) {
+    if (i == 1) {    # first run: initialize output data frame
+      # extract matrix for first parameter set to a data frame
+      Y_temp <- as.data.frame(Y_mat[,,1])
+      names(Y_temp) <- species_names
+      Y_temp$run <- 1
+        
+      # initialize full Y data frame to the time course from this first run
+      Y_df <- Y_temp
+      
+    } else {    # later runs: append to data frame
+      Y_temp <- as.data.frame(Y_mat[,,i])
+      names(Y_temp) <- species_names
+      Y_temp$run <- i
+      Y_df <- rbind(Y_df, Y_temp)
+    }
+  }
+  
+  
+  Y_df <- Y_df %>%
+    mutate(X_numcell = X / conv_factor_numcell_to_ngml) # convert units from ng/ml to #/cell
+  
+  Y_df
+}
+
+# extract simulated data for Jung and Hornig
+pulsechase_Y_df <- make_sim_Y_df(opt_file$jung.Y.all)
+constitutive_Y_df <- make_sim_Y_df(opt_file$hornig.Y.all)
+```
+
+
+### Combine time points and time courses
+
+```{r}
+test_that("Jung times and time courses have same dimension",
+          {expect_equal(length(pulsechase_t_all) * num_param_sets,
+                        nrow(pulsechase_Y_df))})
+
+test_that("Hornig times and time courses have same dimension",
+          {expect_equal(length(constitutive_t_all) * num_param_sets,
+                        nrow(constitutive_Y_df))})
+
+pulsechase_tcs <- cbind(t = rep(pulsechase_t_all, num_param_sets), pulsechase_Y_df)
+constitutive_tcs <- cbind(t = rep(constitutive_t_all, num_param_sets), constitutive_Y_df)
+```
+
+### Combine full dataset
+
+```{r}
+pulsechase_full_df <- meta_df %>%
+  left_join(pulsechase_tcs, by = "run")
+
+constitutive_full_df <- meta_df %>%
+  left_join(constitutive_tcs, by = "run")
+
+# clean up repeat data
+rm(constitutive_Y_df, constitutive_tcs, pulsechase_tcs, pulsechase_Y_df)
+```
+
+## Add normalized values
+
+### Pulse-chase normalization (for comparison to Jung)
+
+```{r}
+pulsechase_I_0h <- pulsechase_full_df %>%
+  filter(t==0) %>%
+  select(run, I_0h = I) %>%
+  mutate(rownum = 1:nrow(.)) %>%
+  filter(rownum %% 2 == 0) %>%   # remove duplicated rows (not sure why unique/distinct don't work)
+  select(-rownum)
+
+pulsechase_X_8h <- pulsechase_full_df %>%
+  filter(t == 8) %>%
+  select(run, X_8h = X) 
+
+pulsechase_full_df <- pulsechase_full_df %>%
+  left_join(pulsechase_I_0h, by = "run", "I_0h") %>%
+  left_join(pulsechase_X_8h, by = "run", "X_8h") %>%
+  mutate(I_fc = I / I_0h,
+         X_frac = X / X_8h)
+```
+
+### Constitutive normalization (for comparison to Kinghorn)
+
+```{r}
+constitutive_I_0 <- constitutive_full_df %>%
+  filter(t == 0) %>%
+  select(run, I_0 = I)
+
+constitutive_X_24 <- constitutive_full_df %>%
+  filter(t == 24) %>%
+  select(run, X_24 = X)
+
+constitutive_full_df <- constitutive_full_df %>%
+  left_join(constitutive_I_0) %>%
+  left_join(constitutive_X_24) %>%
+  mutate(I_fc = I / I_0,
+         X_frac = X / X_24)
+
+constitutive_full_df
+```
+
+## Save objects
+
+```{r}
+# define folder where output will be saved (for example, png images from ggsave)
+outfile_prefix <- "../../../saved-data/01_ode_model/"
+dir.create(outfile_prefix, recursive = TRUE)
+
+save(pulsechase_full_df, constitutive_full_df, meta_df, opt_df, conv_factor_numcell_to_ngml,
+     file = paste0(outfile_prefix, "pulsechase_constitutive_opt_sims.rda"))
+```
+
+

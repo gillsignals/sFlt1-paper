@@ -1,0 +1,374 @@
+---
+title: "Preprocessing: Optimization of DDEs to sFLT1 datasets from Hornig, Pulse-chase and Kinghorn"
+author: "Amy Gill"
+date: "2023-08-10"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+This file analyzes data from optimization of the 2 equation sFLT1 DDE model to the pulse-chase and constitutive time course datasets. These data were imported using the script "sFlt-model/analysis-R/draft/03_candidate_models/candidate_models_import.Rmd".
+
+The optimization was performed 8/23/23 using the Matlab script "sFlt-model/03_candidate_models/dde_candidate_models.m" with following options: 
+
+run_mode = "candidate_model_opt";
+jung_cost_option = "omit_last_Sx_relative";
+hornig_cost_option = "relative_omit3h";
+kinghorn_cost_option = "all_pts_relative";
+num_param_sets = 100;    (# per candidate model)
+
+Optimizing to summary statistics only (mean at each time point) for Kinghorn optimization.
+
+This optimization uses 4 species (I, I_deg, X, X_deg) and optimizes 7 parameters ($\alpha$, $\beta$, $\gamma$, $\delta$, $\epsilon$, $\kappa$, $\tau$) by calculating absolute cost in comparison to all of the following datasets:
+
+- Jung X (normalized to 8h)
+- Jung I (normalized to 0h)
+- Hornig basal X concentration (absolute, ng/mL -> #/cell)
+- Kinghorn X (normalized to 24h)
+- Kinghorn I (normalized to 0h)
+
+## Setup
+
+### Common setup
+
+```{r}
+# load packages, define helper functions, define color palettes, load experimental data
+source("../../helper_scripts/setup.R")
+```
+
+### Set output file
+
+```{r}
+# define folder where output will be saved (for example, png images from ggsave)
+outfile_prefix = "../../../saved-figs/03_candidate_models/"
+dir.create(outfile_prefix, recursive = TRUE)
+
+# specify decimal resolution
+options(digits = 4)
+```
+
+### Import data
+
+#### Optimization runs
+
+```{r}
+# load optimization results from 8/23
+# (if file is not present, run "candidate_models_import.Rmd" to create it)
+load("../../saved-data/03_candidate_models/pulsechase_constitutive_opt_sims.rda")
+```
+
+## Analysis before preprocessing
+
+### Create formatted data frames for analysis
+
+```{r}
+# param_df: a 4-column data frame
+# run = run number 1:1000
+# parameter = factor, parameter definition(alpha, beta, gamma, delta, epsilon, kappa, tau)
+# init_opt = factor, INIT = initial guess, OPT = optimized value
+# value = parameter value
+param_df <- meta_df %>%
+  select(run:OPT_tau) %>%
+  pivot_longer(INIT_alpha:OPT_tau, names_to = "parameter", values_to = "value") %>%
+  separate(parameter, into = c("init_opt", "parameter"), sep = "_") %>%
+  mutate(init_opt = ifelse(init_opt == "INIT", "initial", "optimal"),
+                           init_opt = factor(init_opt),
+         parameter = factor(parameter,
+                            levels = c("alpha", "beta", "gamma", "delta", 
+                                       "epsilon", "kappa", "tau"))) 
+
+# add cost to param_df
+param_df <- meta_df %>%
+  select(run, cost = total_cost) %>%
+  right_join(param_df, by = "run")
+
+# extract parameter names
+param_names <- levels(param_df$parameter)
+```
+
+
+### Cost distribution
+
+#### Density plot
+
+```{r}
+# create function to plot density function of cost
+plot_cost_distr_density <- function(df){
+  df %>%
+    ggplot(aes(total_cost, ..scaled..)) +
+    geom_density(fill = cb_pal[3]) +
+    scale_x_log10() +
+    #scale_x_continuous(trans = "log10", breaks = 10^(-2:5)) +
+    theme1 +
+    xlab("Sum of squared difference") +
+    ylab("Scaled density")
+}
+
+# plot cost distribution
+combo_cost_distr_unfiltered <- plot_cost_distr_density(meta_df) +
+    ggtitle("Cost function values for optimal parameters - all fits")
+  
+# save plot
+ggsave(out_png("combo_cost_distr_unfiltered"),
+       combo_cost_distr_unfiltered, width = 9, height = 6)
+  
+combo_cost_distr_unfiltered
+```
+
+#### Violin plot
+
+```{r}
+# create function to make violin plot of cost distribution
+plot_cost_violin <- function(df){
+  df %>%
+    ggplot(aes(factor(" "), total_cost)) +
+    geom_violin(scale = "width", fill = cb_pal[2]) +   # not trimming b/c hard min value 
+    geom_boxplot(width = 0.3, fill = "white") +
+    scale_y_continuous(trans = "log10", breaks = 10^(-2:5)) +
+    xlab("") +
+    ylab("Sum of squared difference") +
+    coord_flip() +
+    theme1
+}
+
+cost_violin <- plot_cost_violin(meta_df) +
+  ggtitle("Violin plot of cost function values for optimal parameters")
+
+cost_violin
+```
+
+### Raw time courses
+
+Individual time courses are colored by the sum of squared differences (SSD) between simulated and observed measurements of both I and X at the experimental time points.
+
+#### Kinghorn X
+
+Some fits have interesting oscillations. For future analysis, impose a cost filter to refine to top fits.
+
+```{r}
+constitutive_full_df %>%
+  ggplot(aes(t, X_frac)) +
+    geom_line(aes(group = run, color = log2(total_cost)), alpha = 0.25) +
+  geom_point(data = kinghorn, aes(time, X_frac_24h), size = 5, 
+               shape = 21, color = "white", fill = cb_pal[2]) +
+    xlab("Time (h)") +
+    ylab("X (Normalized to 24h)") +
+    labs(color = "log2(Cost)") +
+    theme1
+```
+
+
+#### Kinghorn I
+
+Some fits oscillate, others appear roughly constant at the steady state value.
+
+```{r}
+constitutive_opt_I_timecourse_unfiltered <- constitutive_full_df %>%
+  ggplot(aes(t, I_fc)) +
+    geom_line(aes(group = run, color = log2(total_cost)), alpha = 0.25) +
+  geom_point(data = kinghorn, aes(time, I_fc_0h), size = 5, 
+               shape = 21, color = "white", fill = cb_pal[2]) +
+    xlab("Time (h)") +
+    ylab("I (Normalized to 0h)") +
+    labs(color = "log2(Cost)") +
+    theme1
+
+ggsave(out_png("constitutive_opt_I_timecourse_unfiltered"),
+       constitutive_opt_I_timecourse_unfiltered, width = 8, height = 6)
+
+constitutive_opt_I_timecourse_unfiltered
+```
+
+#### Constitutive X
+
+It is difficult to make out the properties of the low-cost fits due to several fits with very large errors. Like the I time courses, there is a mix of oscillating and monotonically increasing X time courses.
+
+```{r}
+constitutive_plot_X_timecourse_ngml <- function(df){
+  df %>%
+    ggplot(aes(t, X)) +
+    geom_line(aes(group = run, color = log2(total_cost)), alpha = 0.25) +
+    geom_point(data = hornig, aes(nominal_time, X_ng_ml), size = 5, 
+               shape = 21, color = "white", fill = cb_pal[2]) +
+    xlab("Time (h)") +
+    ylab("X (ng/mL)") +
+    labs(color = "log2(Cost)") +
+    theme1
+}
+
+constitutive_opt_X_timecourse_ngml_unfiltered <- constitutive_plot_X_timecourse_ngml(constitutive_full_df) +
+  ggtitle("Constitutive extracellular sFLT1 (X) - All fits")
+
+ggsave(out_png("constitutive_opt_X_timecourse_ngml_unfiltered"),
+       constitutive_opt_X_timecourse_ngml_unfiltered, width = 8, height = 6)
+
+constitutive_opt_X_timecourse_ngml_unfiltered
+```
+
+#### Pulse-chase X
+
+```{r}
+pulsechase_plot_X_frac_timecourse <- function(df){
+  df %>%
+    ggplot(aes(t, X_frac)) +
+    annotate("segment", x = -0.7, xend = -0.17, y = 1.05, yend = 0.65, size = 0.5) +
+    annotate("segment", x = 0.05, xend = 9.95, y = 1.14, yend = 1.14, 
+             lty = 2, size = 0.5) +
+    annotate("rect", xmin = 3, xmax = 5, ymin = 1.13, ymax = 1.17, fill = "white", color = "white") +
+    annotate("text", x = -0.65, y = 1.15, label = "P", size = 5.5, angle = 0, fontface = "bold") +
+    annotate("text", x = 4, y = 1.15, label = "chase", size = 5) +
+    geom_line(aes(group = run, color = log2(total_cost)), alpha = 0.1) +
+        geom_vline(xintercept = 0) +
+    geom_vline(xintercept = -20/60) +
+    geom_point(data = jung, aes(time, media_frac_max, fill = "temp"),
+               size = 5, shape = 21, color = "white",
+               show.legend = TRUE) +
+    scale_fill_manual(labels = "X", values = cb_pal[2]) +
+
+    ylim(c(-0.05, 1.2)) +
+    xlim(c(-1, 10)) +
+    #scale_color_viridis_b() +
+    xlab("Time (h)") +
+    ylab("X (Normalized to 8h)") +
+    labs(color = "log2(Cost)",
+         fill = "Observed data") +
+    theme1 +
+    theme(plot.title = element_text(size = 16))
+}
+
+pulsechase_opt_X_timecourse_unfiltered <- pulsechase_plot_X_frac_timecourse(pulsechase_full_df) +
+  ggtitle("Pulse-chase extracellular sFLT1 (X) - All fits")
+
+# save plot
+ggsave(out_png("pulsechase_opt_X_timecourse_unfiltered"),
+       pulsechase_opt_X_timecourse_unfiltered, width = 8, height = 6)
+
+pulsechase_opt_X_timecourse_unfiltered
+```
+
+
+#### Pulse-chase I
+
+```{r}
+pulsechase_plot_I_fc_timecourse <- function(df){
+  df %>%
+    ggplot(aes(t, I_fc)) +
+    annotate("rect", xmin = -20/60, xmax = 0, ymin = -Inf, ymax = Inf, fill = cb_pal[6]) +
+    geom_line(aes(group = run, color = log2(total_cost)), alpha = 0.1) +
+        geom_vline(xintercept = 0) +
+    geom_vline(xintercept = -20/60) +
+    geom_point(data = jung, aes(time, lysate_fc, fill = "temp"),
+               size = 5, shape = 21, color = "white", show.legend = TRUE) +
+    scale_fill_manual(labels = "I", values = cb_pal[1]) +
+    #scale_color_viridis_b() +
+    xlab("Time (h)") +
+    ylab("I (Normalized to 0h)") +
+    labs(color = "log2(Cost)",
+         fill = "") +
+    #ylim(c(-0.05, 5)) +
+    xlim(c(-1, 10)) +
+    theme1 +
+    theme(plot.title = element_text(size = 16))
+}
+
+pulsechase_opt_I_timecourse_unfiltered <- pulsechase_plot_I_fc_timecourse(pulsechase_full_df) +
+    ggtitle("Pulse-chase intracellular sFlt1 (I) - All fits") +
+    annotate("segment", x = -0.7, xend = -0.17, y = 1.05, yend = 0.65, size = 0.5) +
+    annotate("segment", x = 0.05, xend = 9.95, y = 1.2, yend = 1.2, 
+             lty = 2, size = 0.5) +
+    annotate("rect", xmin = 3, xmax = 5, ymin = 1.18, ymax = 1.21, fill = "white", color = "white") +
+    annotate("text", x = -0.65, y = 1.15, label = "P", size = 5.5, angle = 0, fontface = "bold") +
+    annotate("text", x = 4, y = 1.2, label = "chase", size = 5)
+    #annotate("text", x = -0.65, y = 0.25, label = "Start pulse", angle = 90, size = 6) +
+    #annotate("text", x = 0.25, y = 0.5, label = "Start chase", angle = 90, size = 6)
+
+# save plot
+ggsave(out_png("pulsechase_opt_I_timecourse_unfiltered"),
+       pulsechase_opt_I_timecourse_unfiltered, width = 8, height = 6)
+
+pulsechase_opt_I_timecourse_unfiltered
+```
+
+## Preprocessing
+
+### Define runs to remove
+
+#### Runs that returned NaN cost 
+
+```{r}
+runs_to_remove_na <- meta_df %>%
+  filter(is.nan(c(total_cost))) %>%
+  pull(run)
+
+length(runs_to_remove_na)
+```
+
+#### Negative species - Constitutive
+
+```{r}
+# identify runs where either species goes below 0
+runs_neg_constitutive <- constitutive_full_df %>%
+  filter(X < 0 | I < 0) %>%
+  pull(run) %>%
+  unique()
+
+length(runs_neg_constitutive)
+```
+
+#### Negative species - Pulse-chase
+
+```{r}
+# identify runs where either species goes below 0
+runs_neg_pulsechase <- pulsechase_full_df %>%
+  filter(X < 0 | I < 0) %>%
+  pull(run) %>%
+  unique()
+
+length(runs_neg_pulsechase)
+```
+
+### Remove runs
+
+```{r}
+# remove runs from constitutive simulated time course
+constitutive_sims <- constitutive_full_df %>%
+  filter(! run %in% runs_to_remove_na & !run %in% runs_neg_pulsechase & !run %in% runs_neg_constitutive) %>%
+  mutate(t = round(t,3))
+
+# remove runs from pulse-chase simulated time course
+pulsechase_sims <- pulsechase_full_df %>%
+  filter(!run %in% runs_to_remove_na & !run %in% runs_neg_pulsechase & !run %in% runs_neg_constitutive) %>%
+  mutate(t = round(t,3))
+
+# remove runs from meta_base_df
+meta_df_filtered <- meta_df %>%
+    filter(!run %in% runs_to_remove_na & !run %in% runs_neg_pulsechase & !run %in% runs_neg_constitutive)
+
+# remove runs from opt_df
+opt_df_filtered <- opt_df %>%
+  filter(!run %in% runs_to_remove_na & !run %in% runs_neg_pulsechase & !run %in% runs_neg_constitutive)
+  
+# remove prefix from parameter names in opt_df_filtered
+names(opt_df_filtered) <- str_remove(names(opt_df_filtered), "^OPT_")
+
+# remove runs from param_df
+param_df_filtered <- param_df %>%
+  filter(!run %in% runs_to_remove_na & !run %in% runs_neg_pulsechase & !run %in% runs_neg_constitutive)
+
+length(unique(param_df_filtered$run))
+```
+
+## Save objects
+
+```{r}
+# define folder where output will be saved (for example, png images from ggsave)
+outfile_prefix <- "../../../saved-data/03_candidate_models/"
+dir.create(outfile_prefix, recursive = TRUE)
+
+save(param_df, param_df_filtered, meta_df_filtered, opt_df_filtered, constitutive_sims, pulsechase_sims,
+     file = paste0(outfile_prefix, "candidate_opt_sims_processed.rda"))
+```

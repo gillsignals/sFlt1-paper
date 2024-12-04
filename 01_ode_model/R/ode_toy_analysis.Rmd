@@ -1,0 +1,297 @@
+---
+title: "sFLT1 ODE modeling - Import simulation data"
+author: "Amy Gill"
+date: "2023-08-14"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+This file analyzes data from optimization of the 2 equation sFLT1 ODE model to 1 pulse-chase and 2 constitutive secretion (Kinghorn, Hornig) time course datasets.
+
+The simulation was performed 8/17/23 using the Matlab script "sFlt-model/01_ode_model/ode_driver.m" with following options: 
+
+run_mode = "base_on_off";
+
+This simulation uses 4 species (I, I_deg, X, X_deg) and 4 parameters ($\alpha=10,000$, $\beta=0.1$, $\gamma=0.1$, $\delta = 0.1$) for a period of 6 * T50_X on and 6 * T50_X off.
+
+## Setup
+
+### Packages, helpers, palettes, themes
+
+```{r}
+# load packages, define helper functions, define color palettes, load experimental data
+source("../../helper_scripts/setup.R")
+
+# define theme for exporting at a legible size (default)
+theme_big <- theme1 +
+  theme(legend.position = "bottom",
+        axis.title.y = element_text(angle = 0, vjust = 0.5, size = 16),
+        axis.text = element_text(size = 10),
+        legend.title = element_text(size = 14),
+        legend.text = element_text(size = 10))
+```
+
+### Set output file
+
+```{r}
+# define folder where output will be saved (for example, png images from ggsave)
+outfile_prefix = "../../../saved-figs/01_ode_model/"
+dir.create(outfile_prefix, recursive = TRUE)
+```
+
+## Import data
+
+### Load files
+
+```{r}
+# specify file names
+param_file_name <- "../../../saved-data/01_ode_model/on_off_input.mat"
+opt_file_name <- "../../../saved-data/01_ode_model/on_off_sim.mat"
+
+# import file data
+param_file <- readMat(param_file_name)
+opt_file <- readMat(opt_file_name)
+```
+
+### Extract parameter values
+
+Not needed in current workflow - keeping for reference
+
+```{r}
+p <- param_file$p[,,1]
+
+#p_df <- as.data.frame(p) %>%
+#  pivot_longer(everything(), names_to = "parameter", values_to = "value")
+
+p_list <- lapply(1:length(p), function(x){
+  p[[x]][1,1]
+})
+
+names(p_list) <- names(p)
+```
+
+### Extract species and parameter names, key numbers
+
+```{r}
+# extract parameter names
+param_names <- names(p)
+
+# extract species names
+species_names <- str_replace(names(param_file$sp[,,1]), "\\.", "_")
+
+# extract number of parameter sets
+num_param_sets <- param_file$num.param.sets[1,1]
+
+# extract number of time units simulated in each phase
+num_time_units <- param_file$num.time.units[1,1]
+```
+
+### Calculate steady states
+
+Not needed in current workflow because normalized in Matlab - keep for reference
+
+```{r}
+I_ss <- p_list$alpha / (p_list$beta + p_list$gamma)
+X_ss <- p_list$beta * I_ss / p_list$delta
+
+t50_I_ss <- log(2) / (p_list$beta + p_list$gamma)
+t50_X_ss <- log(2) / p_list$delta
+```
+
+### Extract time course
+
+```{r}
+# extract time course data
+# at t=0, num_time_units time units "on", then num_time_units time units "off"
+Y_df <- data.frame(t = opt_file$pc.sim.time[1,] + num_time_units, 
+                   I_norm = opt_file$pc.sim.I.norm,
+                   X_norm = opt_file$pc.sim.X.norm)
+
+# note "off" versus "on" period
+Y_df <- Y_df %>%
+  mutate(alpha_frac = ifelse(t <= num_time_units, 1, 0),
+         order = 1,
+         t_round = round(t, 3))
+
+# note that the first two time points are intended to be before the "on" phase (draw base line)
+Y_df$alpha_frac[1:2] <- 0
+
+# note that the "on" point should be plotted after the "off" point at t=0
+Y_df$order[3] <- 2
+
+# shorten the time interval displayed before the "on" phase
+Y_df$t[1] <- -2
+
+# add a second time point at t=10 to emphasize step change in alpha
+Y_df <- rbind(Y_df,
+      data.frame(t = num_time_units, 
+                 I_norm = max(Y_df$I_norm), 
+                 X_norm = max(Y_df$X_norm), 
+                 alpha_frac = 0, 
+                 order = 2,
+                 t_round = num_time_units)) %>%
+  arrange(t, order)
+  
+Y_df
+```
+
+## Plot time courses
+
+### Plot alpha
+
+```{r}
+ode_sol_alpha_v_t <- Y_df %>%
+  ggplot(aes(t, alpha_frac)) +
+  #geom_vline(xintercept = 0, size = 0.5, lty = 2) +
+  #geom_vline(xintercept = num_time_units, size = 0.5, lty = 2) +
+  geom_hline(yintercept = 0, size = 0.5) +
+  geom_hline(yintercept = 1, size = 1, lty = 2, color = cb_pal[2]) +
+  annotate("label", x = 10, y = 1, label = TeX(r'($\alpha_{max}$)'), 
+           size = 8, color = cb_pal[2], family = "serif") +
+  geom_line(color = cb_pal[param$alpha], size = 2) +
+  theme_big +
+  ylab(TeX(r'($\frac{\alpha}{\alpha_{max}}$)')) +
+  xlab("Time (normalized)") +
+  scale_x_continuous(limits = c(-2, num_time_units*2), expand = c(0,0),
+                     breaks = seq(0, num_time_units*2, by = 2))
+
+ode_sol_alpha_v_t
+```
+
+
+### Plot I
+
+```{r}
+ode_sol_I_v_t <- Y_df %>%
+  ggplot(aes(t, I_norm)) +
+  geom_vline(xintercept = 0, size = 1, lty = 2, color = cb_pal[param$alpha]) +
+  geom_vline(xintercept = num_time_units, size = 1, lty = 2, color = cb_pal[param$alpha]) +
+  geom_hline(yintercept = 1, size = 1, lty = 2, color = cb_pal[2]) +
+  geom_hline(yintercept = 0, size = 0.5) +
+  geom_line(color = cb_pal[1], size = 1.5) +
+  annotate("label", x = 10, y = 1, label = TeX(r'($I_{SS}$)'), 
+           size = 8, color = cb_pal[2], family = "serif") +
+  theme_big +
+  ylab(TeX(r'($\frac{I}{I_{SS}}$)')) +
+  xlab("Time (normalized)") +
+  scale_y_continuous(breaks = seq(0, 1, by = 0.25)) +
+  scale_x_continuous(limits = c(-2, num_time_units*2), expand = c(0,0),
+                     breaks = seq(0, num_time_units*2, by = 2))
+ode_sol_I_v_t
+```
+
+### Plot X
+
+```{r}
+ode_sol_X_v_t <- Y_df %>%
+  ggplot(aes(t, X_norm)) +
+  geom_vline(xintercept = 0, size = 1, lty = 2, color = cb_pal[param$alpha]) +
+  geom_vline(xintercept = num_time_units, size = 1, lty = 2, color = cb_pal[param$alpha]) +
+  geom_hline(yintercept = 1, size = 1, lty = 2, color = cb_pal[2]) +
+  geom_hline(yintercept = 0, size = 0.5) +
+  geom_line(color = cb_pal[1], size = 1.5) +
+  annotate("label", x = 10, y = 1, label = TeX(r'($X_{SS}$)'), 
+           size = 8, color = cb_pal[2], family = "serif") +
+  theme_big +
+  ylab(TeX(r'($\frac{X}{X_{SS}}$)')) +
+  xlab("Time (normalized)") +
+  scale_y_continuous(breaks = seq(0, 1, by = 0.25)) +
+  scale_x_continuous(limits = c(-2, num_time_units*2), expand = c(0,0),
+                     breaks = seq(0, num_time_units*2, by = 2))
+
+ode_sol_X_v_t
+```
+
+### Combined time courses
+
+```{r}
+ode_sol_timecourses <- (ode_sol_alpha_v_t +
+  theme(axis.title.x = element_blank())) /
+(ode_sol_I_v_t +
+  theme(axis.title.x = element_blank())) / 
+  ode_sol_X_v_t
+
+ggsave(out_png("ode_sol_timecourses"),
+       ode_sol_timecourses, width = 4, height = 8)
+
+ode_sol_timecourses
+```
+
+### Add reference points to time course plots
+
+```{r}
+t_annot <- 0:12
+
+Y_annot <- Y_df %>%
+  filter(t_round %in% t_annot & !duplicated(t_round)) %>%
+  mutate(viridis = factor(seq_along(1:length(t_annot))))
+
+ode_sol_I_annot <- ode_sol_I_v_t +
+  geom_point(data = Y_annot, aes(fill = viridis),
+             shape = 21, col = "black", size = 5, show.legend = FALSE) +
+  scale_fill_manual(values = viridis(length(t_annot))) +
+  scale_y_continuous(limits = c(-0.05, 1.1), breaks = seq(0,1,by = 0.25))
+
+ode_sol_X_annot <- ode_sol_X_v_t +
+  geom_point(data = Y_annot, aes(fill = viridis),
+             shape = 21, col = "black", size = 5, show.legend = FALSE) +
+  scale_fill_manual(values = viridis(length(t_annot))) +
+  scale_y_continuous(limits = c(-0.05, 1.1), breaks = seq(0,1,by = 0.25))
+
+ode_sol_timecourses_annot <- (ode_sol_alpha_v_t +
+  theme(axis.title.x = element_blank()) +
+  scale_y_continuous(limits = c(-0.05, 1.1), breaks = seq(0,1,by = 0.25)) +
+  scale_x_continuous(limits = c(-2, num_time_units*2 + 0.3), expand = c(0,0),
+                     breaks = seq(0, num_time_units*2, by = 2))) /
+(ode_sol_I_annot +
+  theme(axis.title.x = element_blank()) +
+  scale_x_continuous(limits = c(-2, num_time_units*2 + 0.3), expand = c(0,0),
+                     breaks = seq(0, num_time_units*2, by = 2))) / 
+  (ode_sol_X_annot +
+  scale_x_continuous(limits = c(-2, num_time_units*2 + 0.3), expand = c(0,0),
+                     breaks = seq(0, num_time_units*2, by = 2)))
+
+ggsave(out_png("ode_sol_timecourses_annot"),
+       ode_sol_timecourses_annot, width = 4, height = 8)
+
+ode_sol_timecourses_annot
+```
+
+## Plot phase portrait
+
+```{r}
+ode_sol_phase_portrait <- Y_df %>%
+  ggplot(aes(X_norm, I_norm)) +
+  geom_abline(slope = 1, intercept = 0, lty = 2, size = 1.5, color = cb_pal[2]) +
+  geom_path(size = 1) +
+  geom_path(data = filter(Y_df, t < 0.5), arrow = arrow()) +
+  geom_path(data = filter(Y_df, t < 1.55), arrow = arrow()) +
+  geom_path(data = filter(Y_df, t < 2.6), arrow = arrow()) +
+  geom_path(data = filter(Y_df, t < 3.7), arrow = arrow()) +
+  geom_path(data = filter(Y_df, t < 6.6), arrow = arrow()) +
+  geom_path(data = filter(Y_df, t < 7.7), arrow = arrow()) +
+  geom_path(data = filter(Y_df, t < 8.7), arrow = arrow()) +
+  geom_path(data = filter(Y_df, t < 9.7), arrow = arrow()) +
+  annotate("label", x = 0.5, y = 0.5, label = TeX(r'(I = \frac{\beta}{\delta}X)'), 
+           color = cb_pal[2], size = 5, family = "serif") +
+  annotate("label", x = 0.13, y = 0.91, label = "Increasing\nsFLT1", family = "serif") +
+  annotate("label", x = 0.86, y = 0.09, label = "Decreasing\nsFLT1", family = "serif") +
+  geom_point(data = Y_annot, aes(fill = viridis), alpha = 0.9,
+             shape = 21, col = "black", size = 5, show.legend = FALSE) +
+  scale_fill_manual(values = viridis(length(t_annot))) +
+  theme_big +
+  xlab(TeX(r'($\frac{X}{X_{SS}}$)')) +
+  ylab(TeX(r'($\frac{I}{I_{SS}}$)'))
+
+ggsave(out_png("ode_sol_phase_portrait"),
+       ode_sol_phase_portrait, width = 4, height = 4)
+
+ode_sol_phase_portrait
+```
+
+
