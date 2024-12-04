@@ -11,9 +11,9 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## Introduction
 
-This file analyzes data from optimization of the 2 equation sFLT1 ODE model to 1 pulse-chase and 2 constitutive secretion (Kinghorn, Hornig) time course datasets. These data were imported using the script "sFlt-model/analysis-R/draft/01_ode_model/ode_hjk_opt_import.Rmd".
+This file analyzes data from optimization of the 2 equation sFLT1 ODE model to 1 pulse-chase and 2 constitutive secretion (Kinghorn, Hornig) time course datasets. These data were imported using the script "01_ode_model/R/ode_hjk_opt_import.Rmd".
 
-The optimization was performed 8/14/23 using the Matlab script "sFlt-model/01_ode_model/ode_driver.m" with following options: 
+The optimization was originally performed 8/14/23 using the Matlab script "01_ode_model/Matlab/ode_driver.m" with following options: 
 
 run_mode = "opt_100";
 jung_cost_option = "omit_last_Sx_relative";
@@ -57,7 +57,7 @@ theme_big <- theme1 +
 
 ```{r}
 # define folder where output will be saved (for example, png images from ggsave)
-outfile_prefix = "../../../saved-figs/01_ode_model/"
+outfile_prefix = "../../saved-figs/01_ode_model/"
 dir.create(outfile_prefix, recursive = TRUE)
 ```
 
@@ -66,7 +66,7 @@ dir.create(outfile_prefix, recursive = TRUE)
 ```{r}
 # load optimization of ODEs to Hornig, Jung, Kinghorn time course datasets
 # (if file is not present, run "ode_hjk_opt_import.Rmd" to create it)
-load("../../../saved-data/01_ode_model/pulsechase_constitutive_opt_sims.rda")
+load("../../saved-data/01_ode_model/pulsechase_constitutive_opt_sims.rda")
 ```
 
 ### Plot experimental data

@@ -1,17 +1,23 @@
 # sFlt1-paper
 Modeling and analysis code for sFLT1 trafficking manuscript (Gill et al., in progress)
 
-## Matlab Code
+## Prerequisites
 
-This code requires the Optimization Toolbox.
+Matlab: This code requires the Optimization Toolbox.
 
-### `01_ode_model/`
+R: This code is written in R markdown (Rmd) notebooks, which work best in the RStudio IDE. Required packages are listed in `helper_scripts/setup.R`.
 
-This folder contains code to simulate sFLT1 secretion as a system of 2 ordinary differential equations describing intracellular and extracellular sFLT1 pools. There is also code to optimize the model to experimental data.
+## `01_ode_model/`
+
+This folder contains code to simulate and analyze sFLT1 secretion as a system of 2 ordinary differential equations 
+describing intracellular and extracellular sFLT1 pools. There is also code to optimize the model to experimental data.
+
+### Matlab 
 
 #### Driver file: `ode_driver.m`
 
-To run simulations related to Figures 1 and S1, run the driver file `ode_driver.m`. All other scripts in the folder are called within this driver.
+To run simulations related to Figures 1 and S1, run the driver file `ode_driver.m`. 
+All other scripts in the folder are called within this driver.
 
 ##### Driver run modes
 
@@ -24,7 +30,9 @@ To run simulations related to Figures 1 and S1, run the driver file `ode_driver.
 
 ##### Exporting simulation output data
 
-To export output data for analysis in R, set `save_params = 1` and `save_data = 1`, which will save timestamped output files in `01_ode_model/runs`. To run R scripts with these data, manually move output files to ________.
+To export output data for analysis in R, set `save_params = 1` and `save_data = 1`, 
+which will save timestamped output files in `01_ode_model/Matlab/runs`. 
+To run R scripts with these data, manually move desired output files to `saved-data/01_ode_model`.
 
 #### Other files
 
@@ -50,9 +58,18 @@ Each driver mode calls some combination of these files.
 - `module_constitutive_run_optimal.m`: Run constitutive simulation with optimal parameter values and report cost
 - `module_jung_run_optimal.m`: Run pulse-chase simulation with optimal parameter values and report cost
 
+#### R 
+
+Any new datasets are saved to `saved-data/01_ode_model`. Figure outputs are saved to `saved-figs/01_ode_model`.
+
+- `ode_toy_analysis.Rmd`: Uses output from the driver with mode "base_on_off" to produce Figure S1 panels.
+- `ode_hjk_opt_import.Rmd`: Uses output from the driver with mode "opt_100" to import ODE optimization results.
+- `ode_opt_workspace_2023-08-14.Rmd`: Uses imported ODE optimization results to produce Figure 1C-E panels.
+
 ### `02_dde_model
 
-This folder contains code to simulate sFLT1 secretion as a system of 2 delay differential equations describing intracellular and extracellular sFLT1 pools. 
+This folder contains code to simulate sFLT1 secretion as a system of 2 delay differential equations 
+describing intracellular and extracellular sFLT1 pools. 
 There is a fixed time delay between production and either secretion or intracellular degradation. 
 There is also code to optimize the model to experimental data.
 

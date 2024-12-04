@@ -13,7 +13,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 This file analyzes data from optimization of the 2 equation sFLT1 ODE model to 1 pulse-chase and 2 constitutive secretion (Kinghorn, Hornig) time course datasets.
 
-The simulation was performed 8/17/23 using the Matlab script "sFlt-model/01_ode_model/ode_driver.m" with following options: 
+The simulation was originally performed 8/17/23 using the Matlab script "01_ode_model/Matlab/ode_driver.m" with following options: 
 
 run_mode = "base_on_off";
 
@@ -40,7 +40,7 @@ theme_big <- theme1 +
 
 ```{r}
 # define folder where output will be saved (for example, png images from ggsave)
-outfile_prefix = "../../../saved-figs/01_ode_model/"
+outfile_prefix = "../../saved-figs/01_ode_model/"
 dir.create(outfile_prefix, recursive = TRUE)
 ```
 
@@ -50,36 +50,30 @@ dir.create(outfile_prefix, recursive = TRUE)
 
 ```{r}
 # specify file names
-param_file_name <- "../../../saved-data/01_ode_model/on_off_input.mat"
-opt_file_name <- "../../../saved-data/01_ode_model/on_off_sim.mat"
+param_file_name <- "../../saved-data/01_ode_model/on_off_input.mat"
+opt_file_name <- "../../saved-data/01_ode_model/on_off_sim.mat"
 
 # import file data
 param_file <- readMat(param_file_name)
 opt_file <- readMat(opt_file_name)
 ```
 
-### Extract parameter values
-
-Not needed in current workflow - keeping for reference
+### Extract parameter values, species and parameter names, key numbers
 
 ```{r}
+# extract parameter values
 p <- param_file$p[,,1]
 
-#p_df <- as.data.frame(p) %>%
-#  pivot_longer(everything(), names_to = "parameter", values_to = "value")
-
+# format parameter values in a list
 p_list <- lapply(1:length(p), function(x){
   p[[x]][1,1]
 })
 
-names(p_list) <- names(p)
-```
-
-### Extract species and parameter names, key numbers
-
-```{r}
 # extract parameter names
 param_names <- names(p)
+
+# name elements of parameter list
+names(p_list) <- param_names
 
 # extract species names
 species_names <- str_replace(names(param_file$sp[,,1]), "\\.", "_")
@@ -147,10 +141,8 @@ Y_df
 ```{r}
 ode_sol_alpha_v_t <- Y_df %>%
   ggplot(aes(t, alpha_frac)) +
-  #geom_vline(xintercept = 0, size = 0.5, lty = 2) +
-  #geom_vline(xintercept = num_time_units, size = 0.5, lty = 2) +
-  geom_hline(yintercept = 0, size = 0.5) +
-  geom_hline(yintercept = 1, size = 1, lty = 2, color = cb_pal[2]) +
+  geom_hline(yintercept = 0, linewidth = 0.5) +
+  geom_hline(yintercept = 1, linewidth = 1, lty = 2, color = cb_pal[2]) +
   annotate("label", x = 10, y = 1, label = TeX(r'($\alpha_{max}$)'), 
            size = 8, color = cb_pal[2], family = "serif") +
   geom_line(color = cb_pal[param$alpha], size = 2) +
@@ -169,11 +161,11 @@ ode_sol_alpha_v_t
 ```{r}
 ode_sol_I_v_t <- Y_df %>%
   ggplot(aes(t, I_norm)) +
-  geom_vline(xintercept = 0, size = 1, lty = 2, color = cb_pal[param$alpha]) +
-  geom_vline(xintercept = num_time_units, size = 1, lty = 2, color = cb_pal[param$alpha]) +
-  geom_hline(yintercept = 1, size = 1, lty = 2, color = cb_pal[2]) +
-  geom_hline(yintercept = 0, size = 0.5) +
-  geom_line(color = cb_pal[1], size = 1.5) +
+  geom_vline(xintercept = 0, linewidth = 1, lty = 2, color = cb_pal[param$alpha]) +
+  geom_vline(xintercept = num_time_units, linewidth = 1, lty = 2, color = cb_pal[param$alpha]) +
+  geom_hline(yintercept = 1, linewidth = 1, lty = 2, color = cb_pal[2]) +
+  geom_hline(yintercept = 0, linewidth = 0.5) +
+  geom_line(color = cb_pal[1], linewidth = 1.5) +
   annotate("label", x = 10, y = 1, label = TeX(r'($I_{SS}$)'), 
            size = 8, color = cb_pal[2], family = "serif") +
   theme_big +
