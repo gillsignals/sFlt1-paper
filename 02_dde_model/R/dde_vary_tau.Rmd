@@ -13,7 +13,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 This file analyzes data from the general solution of the base (5 parameter) 2 equation sFLT1 DDE model at various values of maturation delay $\tau$.
 
-The simulations were performed 8/18/23 using the Matlab script "sFlt-model/02_dde_model/base_dde_driver.m" with following options: 
+The simulations were originally performed 8/18/23 using the Matlab script "sFlt-model/02_dde_model/base_dde_driver.m" with following options: 
 
 run_mode = "vary_tau_on_off";
 alpha = 10,000, beta = 0.1, gamma = 0.1, delta = 0.1,
@@ -42,7 +42,7 @@ theme_big <- theme1 +
 
 ```{r}
 # define folder where output will be saved (for example, png images from ggsave)
-outfile_prefix = "../../../saved-figs/02_dde_model/toy_taus/"
+outfile_prefix = "../../saved-figs/02_dde_model/general_vary_tau/"
 dir.create(outfile_prefix, recursive = TRUE)
 ```
 
@@ -52,8 +52,8 @@ dir.create(outfile_prefix, recursive = TRUE)
 
 ```{r}
 # specify file names
-param_file_name <- "../../../saved-data/02_dde_model/on_off_taus_input.mat"
-sim_file_name <- "../../../saved-data/02_dde_model/on_off_sim_taus.mat"
+param_file_name <- "../../saved-data/02_dde_model/on_off_taus_input.mat"
+sim_file_name <- "../../saved-data/02_dde_model/on_off_sim_taus.mat"
 
 # import file data
 param_file <- readMat(param_file_name)
@@ -329,44 +329,4 @@ ggsave(out_png("dde_sol_phases"),
        dde_sol_phases, width = 6, height = 8)
 
 dde_sol_phases
-```
-
-
-
-
-### OLD
-
-```{r}
-dde_sol_phase_portrait <- Y_df %>%
-  ggplot(aes(X_norm, I_norm)) +
-  geom_abline(slope = 1, intercept = 0, lty = 2, size = 1.5, color = cb_pal[2]) +
-  geom_path(size = 1) +
-  #geom_path(data = filter(Y_df, t < 0.5), arrow = arrow()) +
-  geom_path(data = filter(Y_df, t < 0.5), arrow = arrow()) +
-  geom_path(data = filter(Y_df, t < 1.55), arrow = arrow()) +
-  geom_path(data = filter(Y_df, t < 2.3), arrow = arrow()) +
-  geom_path(data = filter(Y_df, t < 4.6), arrow = arrow()) +
-  geom_path(data = filter(Y_df, t < 6.6), arrow = arrow()) +
-  geom_path(data = filter(Y_df, t < 8.8), arrow = arrow()) +
-  geom_path(data = filter(Y_df, t < 11), arrow = arrow()) +
-  geom_path(data = filter(Y_df, t < 12.6), arrow = arrow()) +
-  geom_path(data = filter(Y_df, t < 13.4), arrow = arrow()) +
-  geom_path(data = filter(Y_df, t < 15), arrow = arrow()) +
-  geom_path(data = filter(Y_df, t < 17), arrow = arrow()) +
-  annotate("label", x = 0.4, y = 0.4, label = TeX(r'(I = \frac{\beta}{\delta}X)'), 
-           color = cb_pal[2], size = 5, family = "serif") +
-  annotate("label", x = 0.3, y = 1.2, label = "Increasing\nsFLT1", family = "serif") +
-  annotate("label", x = 0.8, y = 0.3, label = "Decreasing\nsFLT1", family = "serif") +
-  geom_point(data = Y_annot, aes(fill = viridis), alpha = 0.9,
-             shape = 21, col = "black", size = 5, show.legend = FALSE) +
-  scale_fill_manual(values = viridis(length(t_annot))) +
-  theme_big +
-  scale_x_continuous(breaks = seq(0, 1.2, by = 0.2)) +
-  xlab(TeX(r'($\frac{X}{X_{SS}}$)')) +
-  ylab(TeX(r'($\frac{I}{I_{SS}}$)'))
-
-ggsave(out_png("dde_sol_phase_portrait"),
-       dde_sol_phase_portrait, width = 4, height = 4)
-
-dde_sol_phase_portrait
 ```

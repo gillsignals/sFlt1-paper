@@ -13,7 +13,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 This file analyzes data from optimization of the 2 equation sFLT1 DDE model  (adding delay to secretion and intracellular degradation) to 1 pulse-chase and 2 constitutive secretion (Kinghorn, Hornig) time course datasets.
 
-The simulation was performed 8/17/23 using the Matlab script "sFlt-model/02_dde_model/dde_driver.m" with following options: 
+The simulation was originally performed 8/17/23 using the Matlab script "02_dde_model/Matlab/dde_driver.m" with following options: 
 
 run_mode = "base_on_off";
 
@@ -40,7 +40,7 @@ theme_big <- theme1 +
 
 ```{r}
 # define folder where output will be saved (for example, png images from ggsave)
-outfile_prefix = "../../../saved-figs/02_dde_model/"
+outfile_prefix = "../../saved-figs/02_dde_model/general/"
 dir.create(outfile_prefix, recursive = TRUE)
 ```
 
@@ -50,8 +50,8 @@ dir.create(outfile_prefix, recursive = TRUE)
 
 ```{r}
 # specify file names
-param_file_name <- "../../../saved-data/02_dde_model/on_off_input.mat"
-opt_file_name <- "../../../saved-data/02_dde_model/on_off_sim.mat"
+param_file_name <- "../../saved-data/02_dde_model/on_off_input.mat"
+opt_file_name <- "../../saved-data/02_dde_model/on_off_sim.mat"
 
 # import file data
 param_file <- readMat(param_file_name)

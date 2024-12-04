@@ -9,692 +9,59 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## ---NEW---
-
 ## Introduction
 
-This file analyzes data from optimization of the 2 equation sFLT1 DDE model to the pulse-chase and constitutive time course datasets. These data were imported using the script "sFlt-model/analysis-R/draft/candidate_models_import.Rmd".
+This file analyzes data from optimization of the 2 equation sFLT1 DDE model to the pulse-chase and constitutive time course datasets. These data were imported using the script "02_dde_model/R/dde_opt_import.Rmd" and processed with "02_dde_model/R/dde_opt_preprocessing.Rmd".
 
-The optimization was performed 8/10/23 using the Matlab script "sFlt-model/dde_model_v2_072723/dde_candidate_models.m" with following options: 
+The optimization was performed 8/21/23 using the Matlab script "sFlt-model/02_dde_model/base_dde_driver.m" with following options: 
 
-run_mode = "candidate_model_opt";
-pulsechase_cost_option = "omit_last_Sx_relative";
-constitutive_cost_option = "relative_omit3h";
+run_mode = "base_model_opt";
+jung_cost_option = "omit_last_Sx_relative";
+hornig_cost_option = "relative_omit3h";
 kinghorn_cost_option = "all_pts_relative";
-num_param_sets = 100;    (# per candidate model)
+num_param_sets = 1000;    (# per candidate model)
 
 Optimizing to summary statistics only (mean at each time point) for Kinghorn optimization.
 
-This optimization uses 4 species (I, I_deg, X, X_deg) and optimizes 7 parameters ($\alpha$, $\beta$, $\gamma$, $\delta$, $\epsilon$, $\kappa$, $\tau$) by calculating absolute cost in comparison to all of the following datasets:
+This optimization uses 4 species (I, I_deg, X, X_deg) and optimizes 5 parameters ($\alpha$, $\beta$, $\gamma$, $\delta$, $\tau$) by calculating relative cost in comparison to all of the following datasets:
 
-- Pulse-chase X (normalized to 8h)
-- Pulse-chase I (normalized to 0h)
-- Constitutive basal X concentration (absolute, ng/mL -> #/cell)
+- Jung X (normalized to 8h)
+- Jung I (normalized to 0h)
+- Hornig basal X concentration (absolute, ng/mL -> #/cell)
 - Kinghorn X (normalized to 24h)
 - Kinghorn I (normalized to 0h)
 
 ## Setup
 
-### Load libraries
+### Common setup
 
 ```{r}
-# load libraries
-library(tidyverse)
-library(patchwork)
-library(R.matlab)
-library(viridis)
-library(GGally)
-library(latex2exp)
-library(ComplexHeatmap)
+# load packages, define helper functions, define color palettes, load experimental data
+source("../../helper_scripts/setup.R")
 ```
-
 
 ### Set output file
 
 ```{r}
 # define folder where output will be saved (for example, png images from ggsave)
-outfile_prefix = "../../../saved-figs/02_dde_model/dde_opt/"
+outfile_prefix = "../../saved-figs/02_dde_model/dde_opt/"
 dir.create(outfile_prefix, recursive = TRUE)
 
 # specify decimal resolution
 options(digits = 4)
 ```
 
-### Helper functions
-
-#### Define helper functions
-
-*goal: extract into a package*
+### Import optimization runs
 
 ```{r}
-# function to load a colorblind friendly palette
-load_cb_pal <- function(){
-  
-  # define colorblind-friendly palette
-# black, red, sky blue, orange, green, yellow, dark blue, pink
-  cb_pal <- c("#000000", "#D55E00",  "#56B4E9", "#E69F00", "#009E73", "#F0E442", "#0072B2",  "#CC79A7")
-  
-  # return color palette
-  cb_pal
-  
-}
-
-# function to set basic plot theme
-set_theme1 <- function(){
-  
-  # define theme basics
-  theme1 <- theme_light() +
-    theme(
-      text = element_text(size = 16),
-      plot.title = element_text(hjust = 0.5),
-      strip.background =element_rect(fill="gray50"),
-      strip.text = element_text(color = "white", face = "bold")
-    )
-  
-  # return theme
-  theme1
-  
-}
-
-# function to create a subdirectory in the current output directory: outfile_prefix/subdir_name/
-create_subdir <- function(subdir_name){
-  
-  # if subdirectory doesn't exist, make it
-  if(!(file.exists(paste0(outfile_prefix, subdir_name)))){
-    setwd(outfile_prefix)
-    dir.create(subdir_name, showWarnings = FALSE)
-  }
-  
-  # return path to desired subdirectory
-  paste0(outfile_prefix, subdir_name, "/")
-}
-
-# convert string filename to "outfile_prefix/filename.png"
-out_png <- function(filename){
-  paste0(outfile_prefix, filename, ".png")
-}
+# load preprocessed optimization results from 8/21
+# (if file is not present, run "dde_opt_preprocessing.Rmd" to create it)
+load("../../saved-data/02_dde_model/dde_opt_sims_processed.rda")
 ```
-
-#### Apply helper functions
-
-```{r}
-# set theme for all plots
-theme1 <- set_theme1()
-
-# define colorblind-friendly palette
-# black, red, sky blue, orange, green, yellow, dark blue, pink
-cb_pal <- load_cb_pal()
-```
-
-### Map parameter names to colors and define resulting color palette (alpha:tau)
-
-```{r}
-# map parameter name to index of desired color
-param <- list(alpha = 3, beta = 2, gamma = 4, delta = 5, kappa = 7, tau = 8)
-
-# store parameter names
-param_names <- names(param)
-
-# create palette for parameters
-param_pal <- sapply(1:length(param), function(x){
-  cb_pal[unlist(param[param_names[x]])]
-})
-```
-
-### Import data
-
-#### Optimization runs
-
-```{r}
-# load optimization results from 3/7
-# (if file is not present, run "candidate_models_import.Rmd" to create it)
-load("../../../saved-data/candidate-models/v5_hjk_relative_100/pulsechase_constitutive_opt_sims.rda")
-```
-
-#### Experimental data
-
-##### Constitutive X
-
-```{r}
-# load experimental data from Hornig
-load("../../../saved-data/hornig.rda")
-
-names(hornig) <- str_replace(names(hornig), "Sx", "X")
-
-hornig <- hornig %>%
-    filter(condition == "basal", nominal_time != 3)
-
-constitutive_X_ngml_24 <- hornig %>%
-  filter(nominal_time == 24) %>%
-  pull(X_ng_ml)
-
-hornig <- hornig %>%
-  mutate(X_norm_24 = X_ng_ml / constitutive_X_ngml_24)
-
-
-hornig %>%
-    ggplot(aes(nominal_time, X_norm_24)) +
-    geom_point(size = 5, color = cb_pal[2]) +
-    geom_line(linewidth = 1, color = cb_pal[2]) +
-    xlab("Time (h)") +
-    ggtitle("Extracellular sFLT1") +
-    theme1 +
-    scale_x_continuous(n.breaks = 8) +
-  scale_y_continuous(name = "Fold change vs 24h",
-                     sec.axis = sec_axis(trans = ~.*constitutive_X_ngml_24/conv_factor_numcell_to_ngml,
-                                         name = "#/cell"))
-```
-
-##### Pulse-chase I, X
-
-```{r}
-# load processed Pulse-chase pulse-chase data 
-# (if file is not present, run "pulsechase_pulse_chase_1d.Rmd" to create it)
-load("../../../saved-data/data-jung-timecourse/jung_1d.rda")
-
-jung <- jung %>%
-  filter(!(nominal_time == 10 & target == "media")) %>%
-  select(target, nominal_time, sFlt) %>%
-  pivot_wider(names_from = "target", values_from = sFlt)
-
-names(jung) <- c("time", "lysate_fc", "media_frac_max")
-
-# plot lysate fold change over time
-p1 <- jung %>%
-  ggplot(aes(time, lysate_fc)) +
-  geom_point(size = 5, color = cb_pal[2]) +
-  geom_line(size = 1, color = cb_pal[2]) +
-  xlab("Time (h)") +
-  ylab("Fold change vs 0h") +
-  ggtitle("Intracellular sFLT1 (I)") +
-  scale_x_continuous(n.breaks = 6) +
-  theme1
-
-# plot media fraction maximum over time
-p2 <- jung %>%
-  ggplot(aes(time, media_frac_max)) +
-  geom_point(size = 5, color = cb_pal[2]) +
-  geom_line(size = 1, color = cb_pal[2]) +
-  xlab("Time (h)") +
-  ylab("Fold change vs 8h") +
-  ggtitle("Extracellular sFLT1 (X)") +
-  scale_x_continuous(n.breaks = 6) +
-  theme1
-
-pulsechase_expt_timecourse <- p2 / p1
-
-pulsechase_expt_timecourse
-```
-
-##### Kinghorn I, X
-
-Important: values are mean values
-
-```{r}
-kinghorn <- readMat("../../../saved-data/kinghorn_ctrl_summary.mat")
-
-kinghorn <- as.data.frame(kinghorn$kinghorn[,,1])
-
-names(kinghorn) <- str_replace_all(names(kinghorn), "\\.", "_")
-
-# plot lysate fold change over time
-k_p1 <- kinghorn %>%
-  ggplot(aes(time, I_fc_0h)) +
-  geom_point(size = 5, color = cb_pal[2]) +
-  geom_line(size = 1, color = cb_pal[2]) +
-  xlab("Time (h)") +
-  ylab("Fold change vs 0h") +
-  ggtitle("Intracellular sFLT1 (I)") +
-  scale_x_continuous(breaks = seq(0, 24, by=4)) +
-  theme1 +
-  ylim(0,1.5)
-
-# plot media fraction maximum over time
-k_p2 <- kinghorn %>%
-  ggplot(aes(time, X_frac_24h)) +
-  geom_point(size = 5, color = cb_pal[2]) +
-  geom_line(size = 1, color = cb_pal[2]) +
-  xlab("Time (h)") +
-  ylab("Fold change vs 24h") +
-  ggtitle("Extracellular sFLT1 (X)") +
-  scale_x_continuous(breaks = seq(0, 24, by=4)) +
-  theme1
-
-kinghorn_expt_timecourse <- k_p2 / k_p1
-
-kinghorn_expt_timecourse
-```
-
-##### Constitutive datasets combined
-
-```{r}
-hornig %>%
-    ggplot(aes(nominal_time, X_norm_24)) +
-    geom_point(size = 5, color = cb_pal[2]) +
-    geom_line(linewidth = 1, color = cb_pal[2]) +
-  geom_point(data = kinghorn, aes(time, X_frac_24h), size = 5, color = cb_pal[7]) +
-  geom_line(data = kinghorn, aes(time, X_frac_24h), linewidth = 1, color = cb_pal[7]) +
-    xlab("Time (h)") +
-    ggtitle("Extracellular sFLT1") +
-    theme1 +
-    scale_x_continuous(n.breaks = 8) +
-  scale_y_continuous(name = "Fold change vs 24h",
-                     sec.axis = sec_axis(trans = ~.*constitutive_X_ngml_24/conv_factor_numcell_to_ngml,
-                                         name = "#/cell"))
-```
-
-
-## Analysis before preprocessing
-
-### Create formatted data frames for analysis
-
-```{r}
-# param_df: a 4-column data frame
-# run = run number 1:1000
-# parameter = factor, parameter definition(alpha, beta, gamma, delta, epsilon, kappa, tau)
-# init_opt = factor, INIT = initial guess, OPT = optimized value
-# value = parameter value
-param_df <- meta_df %>%
-  select(run:OPT_tau) %>%
-  pivot_longer(INIT_alpha:OPT_tau, names_to = "parameter", values_to = "value") %>%
-  separate(parameter, into = c("init_opt", "parameter"), sep = "_") %>%
-  mutate(init_opt = ifelse(init_opt == "INIT", "initial", "optimal"),
-                           init_opt = factor(init_opt),
-         parameter = factor(parameter,
-                            levels = c("alpha", "beta", "gamma", "delta", 
-                                       "epsilon", "kappa", "tau"))) 
-
-# add cost to param_df
-param_df <- meta_df %>%
-  select(run, cost = total_cost) %>%
-  right_join(param_df, by = "run")
-
-# extract parameter names
-param_names <- levels(param_df$parameter)
-```
-
-
-### Cost distribution
-
-#### Density plot
-
-
-```{r}
-# create function to plot density function of cost
-plot_cost_distr_density <- function(df){
-  df %>%
-    ggplot(aes(total_cost, ..scaled..)) +
-    geom_density(fill = cb_pal[3]) +
-    #scale_x_log10() +
-    scale_x_continuous(trans = "log10", breaks = 10^(-2:5)) +
-    theme1 +
-    xlab("Sum of squared difference") +
-    ylab("Scaled density")
-}
-
-# plot cost distribution
-combo_cost_distr_unfiltered <- plot_cost_distr_density(meta_df) +
-    ggtitle("Cost function values for optimal parameters - all fits")
-  
-# save plot
-ggsave(out_png("combo_cost_distr_unfiltered"),
-       combo_cost_distr_unfiltered, width = 9, height = 6)
-  
-combo_cost_distr_unfiltered
-```
-
-#### Violin plot
-
-```{r}
-# create function to make violin plot of cost distribution
-plot_cost_violin <- function(df){
-  df %>%
-    ggplot(aes(factor(" "), total_cost)) +
-    geom_violin(scale = "width", fill = cb_pal[2]) +   # not trimming b/c hard min value 
-    geom_boxplot(width = 0.3, fill = "white") +
-    scale_y_continuous(trans = "log10", breaks = 10^(-2:5)) +
-    xlab("") +
-    ylab("Sum of squared difference") +
-    coord_flip() +
-    theme1
-}
-
-cost_violin <- plot_cost_violin(meta_df) +
-  ggtitle("Violin plot of cost function values for optimal parameters")
-
-cost_violin
-```
-
-### Filter down to only the base delay model
-
-```{r}
-model_num <- meta_df %>%
-  filter(prod_decay == "off" & mat_delay == "yes" & internalize == "no") %>%
-  pull(candidate_model) %>%
-  unique()
-
-constitutive_base_df <- constitutive_full_df %>%
-  filter(candidate_model == model_num)
-
-pulsechase_base_df <- pulsechase_full_df %>%
-  filter(candidate_model == model_num)
-
-meta_base_df <- meta_df %>%
-  filter(candidate_model == model_num)
-
-param_base_df <- param_df %>%
-  filter(candidate_model == model_num)
-```
-
-### Raw time courses
-
-Individual time courses are colored by the sum of squared differences (SSD) between simulated and observed measurements of both I and X at the experimental time points.
-
-#### Kinghorn X
-
-Some fits have divergent oscillations. For future analysis, impose a cost filter to refine to fits that converge to steady state.
-
-```{r}
-constitutive_base_df %>%
-  ggplot(aes(t, X_frac)) +
-    geom_line(aes(group = run, color = log2(total_cost)), alpha = 0.25) +
-  geom_point(data = kinghorn, aes(time, X_frac_24h), size = 5, 
-               shape = 21, color = "white", fill = cb_pal[2]) +
-    xlab("Time (h)") +
-    ylab("X (Normalized to 24h)") +
-    labs(color = "log2(Cost)") +
-    theme1
-```
-
-
-#### Kinghorn I
-
-Some fits oscillate, others remain constant at the steady state value, and the lowest cost fits initially dip below the steady state value before asymptotically returning to that steady state.
-
-```{r}
-constitutive_base_df %>%
-  ggplot(aes(t, I_fc)) +
-    geom_line(aes(group = run, color = log2(total_cost)), alpha = 0.25) +
-  geom_point(data = kinghorn, aes(time, I_fc_0h), size = 5, 
-               shape = 21, color = "white", fill = cb_pal[2]) +
-    xlab("Time (h)") +
-    ylab("I (Normalized to 0h)") +
-    labs(color = "log2(Cost)") +
-    theme1
-```
-
-#### Constitutive X
-
-
-```{r}
-constitutive_plot_X_timecourse_ngml <- function(df){
-  df %>%
-    ggplot(aes(t, X)) +
-    geom_line(aes(group = run, color = log2(total_cost)), alpha = 0.25) +
-    geom_point(data = hornig, aes(nominal_time, X_ng_ml), size = 5, 
-               shape = 21, color = "white", fill = cb_pal[2]) +
-    xlab("Time (h)") +
-    ylab("X (ng/mL)") +
-    labs(color = "log2(Cost)") +
-    theme1
-}
-
-constitutive_opt_X_timecourse_ngml_unfiltered <- constitutive_plot_X_timecourse_ngml(constitutive_base_df) +
-  ggtitle("Constitutive extracellular sFLT1 (X) - All fits")
-
-ggsave(out_png("constitutive_opt_X_timecourse_ngml_unfiltered"),
-       constitutive_opt_X_timecourse_ngml_unfiltered, width = 8, height = 6)
-
-constitutive_opt_X_timecourse_ngml_unfiltered
-```
-
-#### Pulse-chase X
-
-```{r}
-pulsechase_plot_X_frac_timecourse <- function(df){
-  df %>%
-    ggplot(aes(t, X_frac)) +
-    geom_line(aes(group = run, color = log2(total_cost)), alpha = 0.1) +
-        geom_vline(xintercept = 0) +
-    geom_vline(xintercept = -20/60) +
-    annotate("text", x = -0.75, y = 0.55, label = "Start pulse", angle = 90, size = 6) +
-    annotate("text", x = 0.35, y = 0.75, label = "Start chase", angle = 90, size = 6) +
-    geom_point(data = jung, aes(time, media_frac_max, fill = "temp"),
-               size = 5, shape = 21, color = "white",
-               show.legend = TRUE) +
-    scale_fill_manual(labels = "X", values = cb_pal[2]) +
-
-    ylim(c(-0.05, 1.2)) +
-    xlim(c(-1, 10)) +
-    #scale_color_viridis_b() +
-    xlab("Time (h)") +
-    ylab("X (Normalized to 8h)") +
-    labs(color = "log2(Cost)",
-         fill = "Observed data") +
-    theme1 +
-    theme(plot.title = element_text(size = 16))
-}
-
-pulsechase_opt_X_timecourse_unfiltered <- pulsechase_plot_X_frac_timecourse(pulsechase_base_df) +
-  ggtitle("Pulse-chase extracellular sFLT1 (X) - All fits")
-
-# save plot
-ggsave(out_png("pulsechase_opt_X_timecourse_unfiltered"),
-       pulsechase_opt_X_timecourse_unfiltered, width = 8, height = 6)
-
-pulsechase_opt_X_timecourse_unfiltered
-```
-
-
-#### Pulse-chase I
-
-```{r}
-pulsechase_plot_I_fc_timecourse <- function(df){
-  df %>%
-    ggplot(aes(t, I_fc)) +
-    geom_line(aes(group = run, color = log2(total_cost)), alpha = 0.1) +
-        geom_vline(xintercept = 0) +
-    geom_vline(xintercept = -20/60) +
-    geom_point(data = jung, aes(time, lysate_fc, fill = "temp"),
-               size = 5, shape = 21, color = "white", show.legend = TRUE) +
-    scale_fill_manual(labels = "I", values = cb_pal[1]) +
-    #scale_color_viridis_b() +
-    xlab("Time (h)") +
-    ylab("I (Normalized to 0h)") +
-    labs(color = "log2(Cost)",
-         fill = "") +
-    #ylim(c(-0.05, 5)) +
-    xlim(c(-1, 10)) +
-    theme1 +
-    theme(plot.title = element_text(size = 16))
-}
-
-pulsechase_opt_I_timecourse_unfiltered <- pulsechase_plot_I_fc_timecourse(pulsechase_base_df) +
-    ggtitle("Pulse-chase intracellular sFlt1 (I) - All fits") +
-    annotate("text", x = -0.65, y = 0.25, label = "Start pulse", angle = 90, size = 6) +
-    annotate("text", x = 0.25, y = 0.5, label = "Start chase", angle = 90, size = 6)
-
-# save plot
-ggsave(out_png("pulsechase_opt_I_timecourse_unfiltered"),
-       pulsechase_opt_I_timecourse_unfiltered, width = 8, height = 6)
-
-pulsechase_opt_I_timecourse_unfiltered
-```
-
-## Preprocessing
-
-### Define runs to remove
-
-#### Runs that returned NaN cost 
-
-```{r}
-runs_to_remove_na <- meta_base_df %>%
-  filter(is.nan(c(total_cost))) %>%
-  pull(run)
-
-length(runs_to_remove_na)
-```
-
-#### Negative species - Constitutive
-
-```{r}
-# identify runs where either species goes below 0
-runs_neg_constitutive <- constitutive_base_df %>%
-  filter(X < 0 | I < 0) %>%
-  pull(run) %>%
-  unique()
-
-length(runs_neg_constitutive)
-```
-
-#### Negative species - Pulse-chase
-
-```{r}
-# identify runs where either species goes below 0
-runs_neg_pulsechase <- pulsechase_base_df %>%
-  filter(X < 0 | I < 0) %>%
-  pull(run) %>%
-  unique()
-
-length(runs_neg_pulsechase)
-```
-
-### Remove runs
-
-```{r}
-# remove runs from constitutive simulated time course
-constitutive_sims <- constitutive_base_df %>%
-  filter(! run %in% runs_to_remove_na & !run %in% runs_neg_pulsechase & !run %in% runs_neg_constitutive) %>%
-  mutate(t = round(t,3))
-
-# remove runs from pulse-chase simulated time course
-pulsechase_sims <- pulsechase_base_df %>%
-  filter(!run %in% runs_to_remove_na & !run %in% runs_neg_pulsechase & !run %in% runs_neg_constitutive) %>%
-  mutate(t = round(t,3))
-
-# remove runs from meta_base_df
-meta_df_new <- meta_base_df %>%
-    filter(!run %in% runs_to_remove_na & !run %in% runs_neg_pulsechase & !run %in% runs_neg_constitutive)
-
-# remove runs from opt_df
-opt_df_new <- opt_df %>%
-  filter(!run %in% runs_to_remove_na & !run %in% runs_neg_pulsechase & !run %in% runs_neg_constitutive)
-
-# remove runs from param_df
-param_df_new <- param_base_df %>%
-  filter(!run %in% runs_to_remove_na & !run %in% runs_neg_pulsechase & !run %in% runs_neg_constitutive)
-```
-
-```{r}
-length(unique(param_df_new$run))
-```
-
-
-### Cost filtering
-
-The best fitting parameter set had a cost of 1.108. We refined our simulations to fits with a cost within 10% of the minimum cost set.
-
-```{r}
-min(meta_df_new$total_cost)
-```
-
-
-```{r}
-cost_cutoff <- 1.1*min(meta_df_new$total_cost)
-
-sum(meta_df_new$total_cost < cost_cutoff)
-```
-
-#### Plot cost distribution with zoom - not currently useful
-
-Saving for reference
-
-```{r}
-# initial distribution
-p1<- plot_cost_distr_density(meta_df_new) +
-  annotate("rect", xmin = 0.75, xmax = 2, ymin = -0.005, ymax = 1.05, color = cb_pal[1], fill = NA, size = 1)
-
-p2 <- plot_cost_distr_density(meta_df_new) +
-  xlim(c(0.75,2)) +
-  annotate("rect", xmin = 0.85, xmax = 1.2, ymin = 0, ymax = 1.05, size = 2, color = cb_pal[2], fill = NA) +
-  annotate("segment", x = 1.8, xend = 1.25, y = 0.9, yend = 0.65, arrow = arrow(), size = 3, color = cb_pal[2])
-
-cost_distr_base_dde_refined <- p1 +
-  annotate("rect", xmin = 9, xmax = 1e4, ymin = 0.29, ymax = 1.1, color = cb_pal[1], fill = NA, size = 1) +
-  annotate("rect", xmin = 15, xmax = 0.95e4, ymin = 0.3, ymax = 1, fill = "white") +
-  annotate("segment", x = 2, xend = 9, y = 1.05, yend = 1.1, lty = 2, color = cb_pal[1]) +
-  annotate("segment", x = 2, xend = 9, y = 0, yend = 0.29, lty = 2, color = cb_pal[1]) +
-  scale_y_continuous(breaks = seq(0, 1, by = 0.25)) +
-  inset_element(p2, 0.3, 0.3, 0.9, 0.9) 
-
-# save plot
-ggsave(out_png("cost_distr_base_dde_refined"),
-       cost_distr_base_dde_refined, width = 8, height = 6)
-
-cost_distr_base_dde_refined
-```
-
-Supplemental figure. Cost distribution of optimizations to the system of delay differential equations in (Figure ref). The inset corresponds to the range in the black box. The red box and arrow note the set fits retained for further analysis.
-
-
-```{r}
-# list low-cost runs from meta_df_new
-runs_to_keep <- meta_df_new %>%
-  filter(total_cost < cost_cutoff) %>%
-  pull(run)
-
-# remove runs from constitutive simulated time course
-constitutive_sims <- constitutive_sims %>%
-  filter(run %in% runs_to_keep)
-
-# remove runs from pulse-chase simulated time course
-pulsechase_sims <- pulsechase_sims %>%
-  filter(run %in% runs_to_keep)
-
-# remove runs from meta_df
-meta_df_new <- meta_df_new %>%
-  filter(run %in% runs_to_keep)
-
-# remove runs from opt_df
-opt_df_new <- opt_df_new %>%
-  filter(run %in% runs_to_keep)
-
-# remove runs from param_df
-param_df_new <- param_df_new %>%
-  filter(run %in% runs_to_keep)
-
-# create in wide format
-param_df_wide <- param_df_new %>%
-  filter(!(parameter %in% c("epsilon", "kappa"))) %>%
-  mutate(param_init_opt = paste0(ifelse(init_opt == "initial", "INIT_", "OPT_"), parameter)) %>%
-  select(run, param_init_opt, value) %>%
-  pivot_wider(names_from = "param_init_opt", values_from = "value")
-
-param_df_wide
-```
-
-#### Cost versus run number
-
-```{r}
-# visually inspect cost vs run number
-# (densities and boxplots were surprisingly uninformative bc of tight distribution)
-meta_df_new %>%
-  ggplot(aes(as.numeric(run), total_cost)) +
-  geom_point(alpha = 0.3) +
-  scale_x_continuous(n.breaks = 11) +
-  theme1 +
-  xlab("Run number") +
-  ylab("Sum of squared difference") +
-  ggtitle("Cost of fit by run")
-```
-
-## --PAUSE 8/20 4pm--
 
 ## Analysis of processed data
 
 ### Time courses
-
-Individual time courses are colored by the sum of squared differences (SSD) between simulated and observed measurements of both I and X at the experimental time points.
 
 #### Constitutive extracellular sFLT1 (X)
 
@@ -708,11 +75,11 @@ constitutive_opt_X_timecourse_ngml <- constitutive_sims %>%
                shape = 21, color = "white", fill = cb_pal[2]) +
     xlab("Time (h)") +
     ylab("X (ng/mL)") +
-    theme1 +
-  ggtitle("Constitutive extracellular sFLT1 (X)")
+  scale_x_continuous(expand = c(.02,.02), breaks = seq(0, 72, by=24)) +
+  theme_paper
 
-ggsave(out_png("constitutive_opt_X_timecourse_ngml"),
-       constitutive_opt_X_timecourse_ngml, width = 8, height = 6)
+ggsave(out_png("time_courses/constitutive_opt_X_timecourse_ngml"),
+       constitutive_opt_X_timecourse_ngml, width = 6, height = 4.5)
 
 constitutive_opt_X_timecourse_ngml
 ```
@@ -726,17 +93,14 @@ constitutive_opt_X_timecourse_norm <- constitutive_sims %>%
   geom_point(data = hornig, aes(nominal_time, X_norm_24), size = 5, 
              shape = 21, color = "white", fill = cb_pal[2]) +
   xlab("Time (h)") +
-  ylab("X (normalized to 24h)") +
-  theme1 +
-  ggtitle("Constitutive extracellular sFLT1 (X)")
+  scale_x_continuous(expand = c(.02,.02), breaks = seq(0, 72, by=24)) +
+  scale_y_continuous(name = TeX(r'($\frac{X}{X_{24h}}$)')) +
+  theme_paper 
+
+ggsave(out_png("time_courses/constitutive_opt_X_timecourse_norm"),
+       constitutive_opt_X_timecourse_norm, width = 6, height = 4.5)
 
 constitutive_opt_X_timecourse_norm
-```
-
-
-```{r}
-ggsave(out_png("constitutive_opt_X_timecourse_norm"),
-       constitutive_opt_X_timecourse_norm, width = 8, height = 6)
 ```
 
 #### Constitutive intracellular sFLT1 (I)
@@ -750,16 +114,14 @@ constitutive_I_timecourse_fits <- constitutive_sims %>%
     scale_y_log10() +
     xlab("Time (h)") +
     ylab("I (#/cell)") +
-    theme1+
-    ggtitle("Constitutive intracellular sFLT1 (I)")
+  scale_x_continuous(expand = c(0,0), breaks = seq(0, 72, by=24)) +
+    theme_paper 
+
+# save plot
+ggsave(out_png("time_courses/constitutive_I_timecourse_fits"),
+       constitutive_I_timecourse_fits, width = 6, height = 4.5)
 
 constitutive_I_timecourse_fits
-```
-
-```{r}
-# save plot
-ggsave(out_png("constitutive_I_timecourse_fits"),
-       constitutive_I_timecourse_fits, width = 8, height = 6)
 ```
 
 I is at steady state across the entire time course for all parameter sets.
@@ -773,15 +135,15 @@ constitutive_I_norm_timecourse_fits <- constitutive_sims %>%
     ggplot(aes(t, I_fc)) +
     geom_line(aes(group = run), alpha = 0.25) +
     scale_y_log10() +
+  scale_x_continuous(expand = c(0,0), breaks = seq(0, 72, by=24)) +
     xlab("Time (h)") +
-    ylab("I (Fold change)") +
+    ylab(TeX(r'($\frac{I}{I_{0h}}$)')) +
     labs(color = "log2(Cost)") +
-    theme1
-    ggtitle("Constitutive intracellular sFLT1 (I)")
+    theme_paper
 
 # save plot
-ggsave(out_png("constitutive_I_norm_timecourse_fits"),
-       constitutive_I_norm_timecourse_fits, width = 8, height = 6)
+ggsave(out_png("time_courses/constitutive_I_norm_timecourse_fits"),
+       constitutive_I_norm_timecourse_fits, width = 6, height = 4.5)
     
 constitutive_I_norm_timecourse_fits
 ```
@@ -790,88 +152,487 @@ constitutive_I_norm_timecourse_fits
 ##### Distribution of time 0 I amount
 
 ```{r}
-constitutive_sims %>%
+constitutive_time0_I_dist <- constitutive_sims %>%
   filter(t == 0) %>%
   ggplot(aes(I_0, ..scaled..)) +
     geom_density(fill = cb_pal[3]) +
-  scale_x_log10()
-```
+  scale_x_log10(expand = c(0,0), breaks = seq(0, 72, by = 24)) +
+  xlab(TeX(r'($I_{0h}$)')) +
+  theme_paper
 
-
-```{r}
-constitutive_time0_I_dist <- constitutive_plot_time0_I_dist(constitutive_sims) +
-  ggtitle("Constitutive - Distribution of initial I")
+# save plot
+ggsave(out_png("time_courses/constitutive_time0_I_dist"),
+       constitutive_time0_I_dist, width = 6, height = 4.5)
 
 constitutive_time0_I_dist
 ```
 
-```{r}
-# save plot
-ggsave(out_png("constitutive_time0_I_dist"),
-       constitutive_time0_I_dist, width = 8, height = 6)
-```
-
-#### Pulse-chase intracellular
+#### Pulse-chase intracellular 
 
 ```{r}
-pulsechase_opt_I_timecourse <- pulsechase_sims %>%
+pc_opt_I_timecourse <- pulsechase_sims %>%
   ggplot(aes(t, I_fc)) +
   geom_line(aes(group = run), alpha = 0.1) +
   geom_point(data = jung, aes(time, lysate_fc, fill = "temp"),
              size = 5, shape = 21, color = "white", show.legend = TRUE) +
-  scale_fill_manual(labels = "I", values = cb_pal[1]) +
+  scale_fill_manual(labels = "I", values = cb_pal[2]) +
   geom_vline(xintercept = 0) +
   geom_vline(xintercept = -20/60) +
   xlab("Time (h)") +
-  ylab("I (fold change from t=0)") +
+  ylab(TeX(r'($\frac{I}{I_{0h}}$)')) +
   labs(fill = "Observed data") +
-  xlim(c(-1, 10)) +
-  theme1 +
-  theme(plot.title = element_text(size = 16)) +
+  scale_x_continuous(limits = c(-1, 10), expand = c(0,0)) +
+ theme_paper +
   ggtitle("Pulse-chase intracellular sFLT1 (I)") +
   annotate("text", x = -0.7, y = 0.65, label = "Start pulse", angle = 90, size = 6) +
   annotate("text", x = 0.3, y = 0.4, label = "Start chase", angle = 90, size = 6)
 
-pulsechase_opt_I_timecourse
-```
-
-```{r}
 # save plot
-ggsave(out_png("pulsechase_opt_I_timecourse"),
-       pulsechase_opt_I_timecourse, width = 8, height = 6)
+ggsave(out_png("time_courses/pc_opt_I_timecourse"),
+       pc_opt_I_timecourse, width = 6, height = 4.5)
+
+pc_opt_I_timecourse
 ```
 
-#### Pulse-chase extracellular
+## Time courses with experimental data
+
+### Add fill color columns to experimental data
 
 ```{r}
-pulsechase_opt_X_timecourse <- pulsechase_sims %>%
+jung <- jung %>%
+  mutate(fill_col = factor("Jung", levels = c("Jung", "Kinghorn", "Hornig")))
+
+kinghorn <- kinghorn %>%
+  mutate(fill_col = factor("Kinghorn", levels = c("Jung", "Kinghorn", "Hornig")))
+
+hornig <- hornig %>%
+  mutate(fill_col = factor("Hornig", levels = c("Jung", "Kinghorn", "Hornig")))
+```
+
+### Jung X
+
+```{r}
+jung_plot_X_frac_timecourse <- function(df){
+  df %>%
+    ggplot(aes(t, X_frac)) +
+    annotate("rect", xmin = -20/60, xmax = 0, ymin = -Inf, ymax = Inf, fill = cb_pal[6]) +
+    #annotate("rect", xmin = 0, xmax = Inf, ymin = -Inf, ymax = Inf, fill = cb_pal[6]) +
+    geom_line(aes(group = run), alpha = 0.1, size = 1) +
+        geom_vline(xintercept = 0) +
+    geom_vline(xintercept = -20/60) +
+    #annotate("text", x = -0.75, y = 0.55, label = "Start pulse", angle = 90, size = 6) +
+    #annotate("text", x = 0.35, y = 0.75, label = "Start chase", angle = 90, size = 6) +
+    annotate("segment", x = -0.7, xend = -0.17, y = 1.05, yend = 0.65, size = 0.5) +
+    annotate("segment", x = 0.05, xend = 9.95, y = 1.14, yend = 1.14, 
+             lty = 2, size = 0.5) +
+    annotate("rect", xmin = 2.9, xmax = 5.1, ymin = 1.13, ymax = 1.17, fill = "white", color = "white") +
+    annotate("text", x = -0.65, y = 1.15, label = "P", size = 5.5, angle = 0, fontface = "bold") +
+    annotate("text", x = 4, y = 1.15, label = "chase", size = 7, family = "serif") +
+    geom_point(data = jung, aes(time, media_frac_max, fill = fill_col),
+               size = 5, shape = 21, color = "white",
+               show.legend = TRUE) +
+    scale_fill_manual(labels = c("Jung", "Kinghorn", "Hornig"),
+                    values = c(cb_pal[5], cb_pal[2], cb_pal[7]), drop = FALSE) +  
+    labs(fill = "Experimental data") +    
+    scale_y_continuous(limits = c(-0.05, 1.2), breaks = seq(0, 1, by = 0.25)) +
+    scale_x_continuous(limits = c(-1, 10), breaks = seq(0, 10, by = 2), expand = c(0,0)) +
+    #scale_color_viridis_b() +
+    xlab("Time (h)") +
+    ylab(TeX(r'($\frac{X}{X_{8h}}$)')) +
+
+    #ylab("X (Normalized to 8h)") +
+    theme_paper
+}
+
+jung_opt_X_timecourse <- jung_plot_X_frac_timecourse(pulsechase_sims) #+
+  #ggtitle("Jung extracellular sFLT1 (X) - All fits")
+
+jung_opt_X_timecourse_no_legend <- jung_plot_X_frac_timecourse(pulsechase_sims) +
+  theme(legend.position = "none")
+
+# save plot
+ggsave(out_png("time_courses/jung_opt_X_timecourse_big"),
+       jung_opt_X_timecourse, width = 4, height = 3)
+
+# save plot without legend
+ggsave(out_png("time_courses/jung_opt_X_timecourse_big_nolegend"),
+               jung_opt_X_timecourse_no_legend, width = 4, height = 3)
+
+jung_opt_X_timecourse
+```
+
+#### Poster version
+
+```{r}
+jung_opt_X_timecourse_poster <- pulsechase_sims %>%
   ggplot(aes(t, X_frac)) +
-  geom_line(aes(group = run), alpha = 0.1) +
-  annotate("text", x = -0.75, y = 0.55, label = "Start pulse", angle = 90, size = 6) +
-  annotate("text", x = 0.35, y = 0.75, label = "Start chase", angle = 90, size = 6) +
-  geom_point(data = jung, aes(time, media_frac_max, fill = "temp"),
-             size = 5, shape = 21, color = "white",
-             show.legend = TRUE) +
-  scale_fill_manual(labels = "X", values = cb_pal[2]) +
-  geom_vline(xintercept = 0) +
-  geom_vline(xintercept = -20/60) +
-  ylim(c(-0.05, 1.2)) +
-  xlim(c(-1, 10)) +
-  #scale_color_viridis_b() +
-  xlab("Time (h)") +
-  ylab("X (Fraction of 8h amount)") +
-  labs(fill = "Observed data") +
-  theme1 +
-  theme(plot.title = element_text(size = 16)) +
-  ggtitle("Pulse-chase extracellular sFLT1 (X)")
+    annotate("rect", xmin = -20/60, xmax = 0, ymin = -Inf, ymax = Inf, fill = cb_pal[6]) +
+    #annotate("rect", xmin = 0, xmax = Inf, ymin = -Inf, ymax = Inf, fill = cb_pal[6]) +
+    geom_line(aes(group = run), alpha = 0.1, size = 1) +
+        geom_vline(xintercept = 0) +
+    geom_vline(xintercept = -20/60) +
+    #annotate("text", x = -0.75, y = 0.55, label = "Start pulse", angle = 90, size = 6) +
+    #annotate("text", x = 0.35, y = 0.75, label = "Start chase", angle = 90, size = 6) +
+    annotate("segment", x = -0.7, xend = -0.17, y = 1.05, yend = 0.65, size = 0.5) +
+    annotate("segment", x = 0.05, xend = 9.95, y = 1.14, yend = 1.14, 
+             lty = 2, size = 0.5) +
+    annotate("rect", xmin = 3, xmax = 5, ymin = 1.13, ymax = 1.17, fill = "white", color = "white") +
+    annotate("text", x = -0.65, y = 1.15, label = "P", size = 5, angle = 0, fontface = "bold") +
+    annotate("text", x = 4, y = 1.15, label = "chase", size = 5.5) +
+    geom_point(data = jung, aes(time, media_frac_max, fill = fill_col),
+               size = 5, shape = 21, color = "white",
+               show.legend = TRUE) +
+    scale_fill_manual(labels = c("Jung", "Kinghorn", "Hornig"),
+                    values = c(cb_pal[5], cb_pal[2], cb_pal[7]), drop = FALSE) +  
+    labs(fill = "Experimental data") +    
+    scale_y_continuous(limits = c(-0.05, 1.2), breaks = seq(0, 1, by = 0.25)) +
+    scale_x_continuous(limits = c(-1, 10), breaks = seq(0, 10, by = 2), expand = c(0,.1)) +
+    #scale_color_viridis_b() +
+    xlab("Time (h)") +
+    ylab(TeX(r'($\frac{X}{X_{8h}}$)')) +
+  theme_poster
 
-pulsechase_opt_X_timecourse
+
+# save plot
+ggsave(out_png("time_courses/jung_opt_X_timecourse_poster"),
+       jung_opt_X_timecourse_poster, width = 6, height = 4)
+
+jung_opt_X_timecourse_poster
+
 ```
 
+ 
+
+### Jung I
+
 ```{r}
+jung_plot_I_fc_timecourse <- function(df){
+  df %>%
+    ggplot(aes(t, I_fc)) +
+    annotate("rect", xmin = -20/60, xmax = 0, ymin = -Inf, ymax = Inf, fill = cb_pal[6]) +
+    geom_line(aes(group = run), alpha = 0.1, size = 1) +
+        geom_vline(xintercept = 0) +
+    geom_vline(xintercept = -20/60) +
+    annotate("segment", x = -0.7, xend = -0.2, y = 1.05, yend = 0.7, size = 0.5) +
+    annotate("segment", x = 0.05, xend = 9.95, y = 0, yend = 0, lty = 2, size = 0.5) +
+    annotate("rect", xmin = 2.9, xmax = 5.1, ymin = -.02, ymax = .02, fill = "white", color = "white") +
+    annotate("text", x = -0.65, y = 1.15, label = "P", size = 5.5, angle = 0, fontface = "bold") +
+    annotate("text", x = 4, y = 0, label = "chase", size = 7, family = "serif") +
+    geom_point(data = jung, aes(time, lysate_fc, fill = fill_col),
+               size = 5, shape = 21, color = "white", show.legend = TRUE) +
+    scale_fill_manual(labels = c("Jung", "Kinghorn", "Hornig"),
+                    values = c(cb_pal[5], cb_pal[2], cb_pal[7]), drop = FALSE) +  
+  labs(fill = "Experimental data") +
+    xlab("Time (h)") +
+    ylab(TeX(r'($\frac{I}{I_{0h}}$)')) +
+    scale_y_continuous(limits = c(-0.05, 1.2), breaks = seq(0, 1, by = 0.25)) +
+    scale_x_continuous(limits = c(-1, 10), breaks = seq(0, 10, by = 2), expand = c(0,0)) +
+    theme_paper}
+
+jung_opt_I_timecourse <- jung_plot_I_fc_timecourse(pulsechase_sims)
+    #ggtitle("Jung intracellular sFlt1 (I) - All fits") +
+    
+jung_opt_I_timecourse_nolegend <- jung_opt_I_timecourse +
+  theme(legend.position = "none")
+
 # save plot
-ggsave(out_png("pulsechase_opt_X_timecourse"),
-       pulsechase_opt_X_timecourse, width = 8, height = 6)
+ggsave(out_png("time_courses/jung_opt_I_timecourse_big"),
+       jung_opt_I_timecourse, width = 4, height = 3)
+
+# save plot
+ggsave(out_png("time_courses/jung_opt_I_timecourse_big_nolegend"),
+       jung_opt_I_timecourse_nolegend, width = 4, height = 3)
+
+jung_opt_I_timecourse
+```
+
+#### Poster version
+
+```{r}
+jung_opt_I_timecourse_poster <- pulsechase_sims %>%
+  ggplot(aes(t, I_fc)) +
+    annotate("rect", xmin = -20/60, xmax = 0, ymin = -Inf, ymax = Inf, fill = cb_pal[6]) +
+    geom_line(aes(group = run), alpha = 0.1, size = 1) +
+        geom_vline(xintercept = 0) +
+    geom_vline(xintercept = -20/60) +
+    annotate("segment", x = -0.7, xend = -0.2, y = 1.05, yend = 0.7, size = 0.5) +
+    annotate("segment", x = 0.05, xend = 10.15, y = 0, yend = 0, lty = 2, size = 0.5) +
+    annotate("rect", xmin = 3, xmax = 5, ymin = -.02, ymax = .02, fill = "white", color = "white") +
+    annotate("text", x = -0.65, y = 1.15, label = "P", size = 5, angle = 0, fontface = "bold") +
+    annotate("text", x = 4, y = 0, label = "chase", size = 5.5) +
+    geom_point(data = jung, aes(time, lysate_fc, fill = fill_col),
+               size = 5, shape = 21, color = "white", show.legend = TRUE) +
+    scale_fill_manual(labels = c("Jung", "Kinghorn", "Hornig"),
+                    values = c(cb_pal[5], cb_pal[2], cb_pal[7]), drop = FALSE) +  
+  labs(fill = "Experimental data") +
+    xlab("Time (h)") +
+    ylab(TeX(r'($\frac{I}{I_{0h}}$)')) +
+    scale_y_continuous(limits = c(-0.05, 1.2), breaks = seq(0, 1, by = 0.25)) +
+    scale_x_continuous(limits = c(-1, 10.2), breaks = seq(0, 10, by = 2), expand = c(0,0)) +
+    theme_poster
+
+# save plot
+ggsave(out_png("time_courses/jung_opt_I_timecourse_poster"),
+       jung_opt_I_timecourse_poster, width = 6, height = 4)
+
+jung_opt_I_timecourse_poster
+```
+
+
+### Kinghorn X
+
+All optimized parameter sets produce an identical extracellular time course.
+
+```{r}
+kinghorn_opt_X_timecourse <- constitutive_sims %>%
+  ggplot(aes(t, X_frac)) +
+    geom_line(aes(group = run), size = 1, alpha = 0.25) +
+  geom_point(data = kinghorn, aes(time, X_frac_24h, fill = fill_col), size = 5, 
+               shape = 21, color = "white") +
+    scale_fill_manual(labels = c("Jung", "Kinghorn", "Hornig"),
+                    values = c(cb_pal[5], cb_pal[2], cb_pal[7]), drop = FALSE) +  
+    labs(fill = "Experimental data") +
+    xlab("Time (h)") +
+    ylab(TeX(r'($\frac{X}{X_{24h}}$)')) +
+  scale_x_continuous(breaks = seq(0, 72, by = 24), expand = c(.02,0)) +
+    theme_paper
+
+kinghorn_opt_X_timecourse_nolegend <- kinghorn_opt_X_timecourse +
+  theme(legend.position = "none")
+
+# save plot
+ggsave(out_png("time_courses/kinghorn_opt_X_timecourse_big"),
+       kinghorn_opt_X_timecourse, width = 4, height = 3)
+
+# save plot
+ggsave(out_png("time_courses/kinghorn_opt_X_timecourse_big_nolegend"),
+       kinghorn_opt_X_timecourse_nolegend, width = 4, height = 3)
+
+kinghorn_opt_X_timecourse
+```
+
+### Kinghorn I
+
+In constitutive simulations, I remains at steady state for the entire experimentally observed period.
+
+```{r}
+kinghorn_opt_I_timecourse <- constitutive_sims %>%
+  ggplot(aes(t, I_fc)) +
+    geom_line(aes(group = run), size = 1, alpha = 0.25) +
+  geom_point(data = kinghorn, aes(time, I_fc_0h, fill = fill_col), size = 5, 
+               shape = 21, color = "white") +
+  scale_fill_manual(labels = c("Jung", "Kinghorn", "Hornig"),
+                    values = c(cb_pal[5], cb_pal[2], cb_pal[7]), drop = FALSE) +  
+  labs(fill = "Experimental data") +
+  xlab("Time (h)") +
+    ylab(TeX(r'($\frac{I}{I_{0h}}$)')) +
+    ylim(c(0, 1.5)) +
+  scale_x_continuous(breaks = seq(0, 72, by = 24), expand = c(0,0)) +
+    theme_paper
+
+# save plot
+ggsave(out_png("time_courses/kinghorn_opt_I_timecourse"),
+       kinghorn_opt_I_timecourse, width = 4, height = 3)
+
+kinghorn_opt_I_timecourse
+```
+
+#### Poster version
+
+```{r}
+kinghorn_opt_I_timecourse_poster <- constitutive_sims %>%
+  ggplot(aes(t, I_fc)) +
+    geom_line(aes(group = run), size = 1, alpha = 0.25) +
+  geom_point(data = kinghorn, aes(time, I_fc_0h, fill = fill_col), size = 5, 
+               shape = 21, color = "white") +
+  scale_fill_manual(labels = c("Jung", "Kinghorn", "Hornig"),
+                    values = c(cb_pal[5], cb_pal[2], cb_pal[7]), drop = FALSE) +  
+  labs(fill = "Experimental data") +
+  xlab("Time (h)") +
+  scale_x_continuous(limits = c(-1, 72.2), breaks = seq(0, 72, by = 12), expand = c(0,0.3)) +
+    ylab(TeX(r'($\frac{I}{I_{0h}}$)')) +
+    ylim(c(0, 1.5)) +
+    theme_poster
+
+# save plot
+ggsave(out_png("time_courses/kinghorn_opt_I_timecourse_poster"),
+       kinghorn_opt_I_timecourse_poster, width = 6, height = 4)
+
+kinghorn_opt_I_timecourse_poster
+```
+
+### Hornig X
+
+```{r}
+hornig_plot_X_timecourse_numcell <- function(df){
+  df %>%
+    ggplot(aes(t, X / conv_factor_numcell_to_ngml)) +
+    geom_line(aes(group = run), size = 1, alpha = 0.25) +
+    geom_point(data = hornig, aes(nominal_time, X_numcell, fill = fill_col), size = 5, 
+               shape = 21, color = "white") +
+    scale_fill_manual(labels = c("Jung", "Kinghorn", "Hornig"),
+                    values = c(cb_pal[5], cb_pal[2], cb_pal[7]), drop = FALSE) +  
+  labs(fill = "Experimental data") +
+    xlab("Time (h)") +
+    ylab("X (#/cell)") +
+    scale_x_continuous(breaks = seq(0, 72, by = 24), expand = c(0,0)) +
+    theme_paper
+}
+
+hornig_opt_X_timecourse_numcell <- hornig_plot_X_timecourse_numcell(constitutive_sims) #+
+  #ggtitle("Hornig extracellular sFLT1 (X) - All fits")
+
+hornig_opt_X_timecourse_numcell_nolegend <- hornig_opt_X_timecourse_numcell +
+  theme(legend.position = "none")
+
+ggsave(out_png("time_courses/hornig_opt_X_timecourse_numcell_nolegend"),
+       hornig_opt_X_timecourse_numcell_nolegend, width = 4, height = 3)
+
+hornig_opt_X_timecourse_numcell_nolegend
+```
+
+The simulations track well with the data through 48h, but the 72h point is not well fit.
+
+### Hornig I
+
+```{r}
+hornig_plot_I_timecourse_numcell <- function(df){
+  df %>%
+    ggplot(aes(t, I)) +
+    geom_line(aes(group = run), size = 1, alpha = 0.05) +
+    xlab("Time (h)") +
+    ylab("I (#/cell)") +
+    theme_paper +
+    scale_x_continuous(breaks = seq(0, 72, by = 24), expand = c(0,0)) +
+    scale_y_log10()
+}
+
+hornig_opt_I_timecourse_numcell <- hornig_plot_I_timecourse_numcell(constitutive_sims) +
+  theme(legend.position = "none")
+#  ggtitle("Hornig intracellular sFLT1 (I) - All fits")
+
+ggsave(out_png("time_courses/hornig_opt_I_timecourse_numcell"),
+       hornig_opt_I_timecourse_numcell, width = 6, height = 4.5)
+
+hornig_opt_I_timecourse_numcell
+```
+
+The absolute number of intracellular sFLT1 varies across parameter sets within a range of 2.0e5 - 2.6e7 molecules per cell, with a median of 8.2e5 #/cell.
+
+```{r}
+range(constitutive_sims$I)
+median(constitutive_sims$I)
+```
+
+
+### Constitutive combo X
+
+```{r}
+const_opt_X_timecourse_combo <- constitutive_sims %>%
+    ggplot(aes(t, X / X_24)) +
+    geom_line(aes(group = run), size = 1, alpha = 0.25) +
+    geom_point(data = hornig, aes(nominal_time, X_norm_24, fill = fill_col), 
+               size = 5, shape = 21, color = "white") +
+#    geom_line(data = hornig, aes(nominal_time, X_norm_24), linewidth = 1, color = cb_pal[2]) 
+  geom_point(data = kinghorn, aes(time, X_frac_24h, fill = fill_col), 
+             size = 5, shape = 21, color = "white", show.legend = FALSE) +
+#  geom_line(data = kinghorn, aes(time, X_frac_24h), linewidth = 1, color = cb_pal[7]) +
+  scale_fill_manual(labels = c("Jung", "Kinghorn", "Hornig"),
+                    values = c(cb_pal[5], cb_pal[2], cb_pal[7]), drop = FALSE) +  
+  labs(fill = "Experimental data") +
+  xlab("Time (h)") +
+    theme_paper +
+    scale_x_continuous(breaks = seq(0, 72, by = 24), expand = c(.01,.01)) +
+  scale_y_continuous(name = TeX(r'($\frac{X}{X_{24h}}$)'),
+                     sec.axis = sec_axis(trans = ~.*hornig_X_numcell_24,
+                                         name = "X\n(#/cell)")) +
+  theme(axis.title.y.right = element_text(angle = 0, vjust = 0.5),
+        axis.title.y = element_text(angle = 0, vjust = 0.5))
+
+ggsave(out_png("time_courses/const_opt_X_timecourse_combo_big"),
+       const_opt_X_timecourse_combo, width = 4, height = 3)
+
+const_opt_X_timecourse_combo
+```
+
+#### Poster version
+
+```{r}
+const_opt_X_timecourse_combo_poster <- constitutive_sims %>%
+    ggplot(aes(t, X / X_24)) +
+    geom_line(aes(group = run), size = 1, alpha = 0.25) +
+    geom_point(data = hornig, aes(nominal_time, X_norm_24, fill = fill_col), 
+               size = 5, shape = 21, color = "white") +
+#    geom_line(data = hornig, aes(nominal_time, X_norm_24), linewidth = 1, color = cb_pal[2]) 
+  geom_point(data = kinghorn, aes(time, X_frac_24h, fill = fill_col), 
+             size = 5, shape = 21, color = "white", show.legend = FALSE) +
+#  geom_line(data = kinghorn, aes(time, X_frac_24h), linewidth = 1, color = cb_pal[7]) +
+  scale_fill_manual(labels = c("Jung", "Kinghorn", "Hornig"),
+                    values = c(cb_pal[5], cb_pal[2], cb_pal[7]), drop = FALSE) +  
+  labs(fill = "Experimental data") +
+  xlab("Time (h)") +
+    theme_poster +
+  scale_x_continuous(limits = c(-1, 73.5), breaks = seq(0, 72, by = 24), expand = c(0,0)) +
+  scale_y_continuous(name = TeX(r'($\frac{X}{X_{24h}}$)'),
+                     sec.axis = sec_axis(trans = ~.*hornig_X_numcell_24,
+                                         name = "X\n(#/cell)")) +
+  theme(axis.title.y.right = element_text(angle = 0, vjust = 0.5, size = 16))
+
+ggsave(out_png("time_courses/const_opt_X_timecourse_combo_poster"),
+       const_opt_X_timecourse_combo_poster, width = 6, height = 4)
+
+const_opt_X_timecourse_combo_poster
+```
+
+
+### Combined figure
+
+```{r}
+p1 <- jung_opt_X_timecourse
+p2 <- jung_opt_I_timecourse
+p3 <- const_opt_X_timecourse_combo
+p4 <- kinghorn_opt_I_timecourse
+
+dde_combo_plot <- (p1 + p3) / (p2 + p4) +
+  plot_layout(guides = "collect") &
+  theme(plot.title = element_blank(), 
+        legend.position = "bottom",
+        axis.title.x = element_text(size = 24),
+        axis.title.y = element_text(angle = 0, vjust = 0.5, size = 24),
+        axis.title.y.right = element_text(angle = 0, vjust = 0.5, size = 24),
+        axis.text = element_text(size = 20),
+        legend.title = element_text(size = 24, face = "bold"),
+        legend.text = element_text(size = 24))
+
+ggsave(out_png("time_courses/dde_combo_plot"),
+       dde_combo_plot, width = 12, height = 8)
+
+dde_combo_plot
+```
+
+#### Poster version
+
+```{r}
+p1 <- jung_opt_X_timecourse_poster
+p2 <- jung_opt_I_timecourse_poster
+p3 <- const_opt_X_timecourse_combo_poster
+p4 <- kinghorn_opt_I_timecourse_poster
+
+dde_combo_plot_poster <- (p1 + p3) / (p2 + p4) +
+  plot_layout(guides = "collect") &
+  theme(plot.title = element_blank(), 
+        legend.position = "bottom",
+        axis.title.x = element_text(size = 20),
+        axis.title.y = element_text(angle = 0, vjust = 0.5, size = 20),
+        axis.title.y.right = element_text(angle = 0, vjust = 0.5, size = 20),
+        axis.text = element_text(size = 14),
+        legend.title = element_text(size = 18, face = "bold"),
+        legend.text = element_text(size = 18))
+
+ggsave(out_png("time_courses/dde_combo_plot_poster"),
+       dde_combo_plot_poster, width = 9, height = 6)
+
+dde_combo_plot_poster
 ```
 
 ### Parameter values
@@ -883,58 +644,52 @@ ggsave(out_png("pulsechase_opt_X_timecourse"),
 Plot all 6 parameters on a semilog scale.
 
 ```{r}
-color_breaks <- levels(alt_param_df_new$parameter)
+color_breaks <- levels(param_df_init_opt_cols$parameter)
 color_labels <- parse(text = color_breaks)
 
-init_param_distr <- alt_param_df_new %>%
+init_param_distr <- param_df_init_opt_cols %>%
   ggplot(aes(initial, fill = parameter)) +
-  geom_density(alpha =0.7) +
-  scale_x_log10() +
+  geom_density() +
+  scale_x_log10(expand = c(0,0)) +
   facet_wrap(~ parameter, scales = "free", labeller = label_parsed) +
   scale_fill_manual(values = param_pal, breaks = color_breaks, label = color_labels) +
   xlab("Initial value") +
   ylab("Density") +
-  ggtitle("Initial parameter value distributions") +
+  #ggtitle("Initial parameter value distributions") +
   guides(fill = guide_legend(title = "Parameter")) +
-  theme1
+  theme_paper
+
+ggsave(out_png("param_dists/init_param_distr"),
+       init_param_distr, width = 8, height = 4)
 
 init_param_distr
-```
-
-```{r}
-ggsave(out_png("init_param_distr"),
-       init_param_distr, width = 8, height = 4)
 ```
 
 ##### Violin
 
 ```{r}
-init_param_violin <- alt_param_df_new %>%
+init_param_violin <- param_df_init_opt_cols %>%
     ggplot(aes(initial, parameter, fill = parameter)) +
     geom_violin(scale = "width", trim = FALSE) +
     geom_boxplot(width = 0.3, fill = "white") +
     labs(fill = "Parameter") +
     scale_x_log10() +
-  scale_y_discrete(labels = parse(text = param_names)) +
+  scale_y_discrete(labels = color_labels) +
   scale_fill_manual(values = param_pal, breaks = color_breaks, label = color_labels) +
     xlab("Initial value") +
     ylab("Parameter") +
-    ggtitle("Initial parameter value distributions") +
-    theme1 +
-    theme(plot.title = element_text(size = 24),
-          text = element_text(size = 20),
-          axis.text.y = element_text(size = 20),
-          legend.position = "bottom") +
+    #ggtitle("Initial parameter value distributions") +
+    theme_paper +
+    theme(legend.position = "bottom") +
     guides(fill = guide_legend(nrow = 1))
+
+# save plot
+ggsave(out_png("param_dists/init_param_violin"),
+       init_param_violin, width = 7.5, height = 5)
 
 init_param_violin
 ```
 
-```{r}
-# save plot
-ggsave(out_png("init_param_violin"),
-       init_param_violin, width = 7.5, height = 5)
-```
 
 
 #### Optimal parameter values
@@ -942,81 +697,92 @@ ggsave(out_png("init_param_violin"),
 ##### Density
 
 ```{r}
-opt_param_distr <- alt_param_df_new %>%
+opt_param_distr <- param_df_init_opt_cols %>%
     ggplot(aes(optimal, fill = parameter, ..scaled..)) +
     geom_density(alpha = 0.7, show.legend = FALSE) +
-    scale_x_log10() +
+    scale_x_log10(expand = c(0,0)) +
     facet_wrap(~ parameter, scales = "free", labeller = label_parsed) +
     scale_fill_manual(values = param_pal) +
     xlab("Optimized value") +
     ylab("Scaled density") +
     ggtitle("Optimal parameter value distributions") +
     labs(fill = "Parameter") +
-    theme1 +
+    theme_paper +
     theme(plot.title = element_text(size = 24))
+
+# save plot
+ggsave(out_png("param_dists/opt_param_distr"),
+       opt_param_distr, width = 9.9, height = 6.6)
 
 opt_param_distr
 ```
 
-```{r}
-# save plot
-ggsave(out_png("opt_param_distr"),
-       opt_param_distr, width = 9.9, height = 6.6)
-```
 
 ##### Violin
 
 ```{r}
-opt_param_violin <- alt_param_df_new %>%
+opt_param_violin <- param_df_init_opt_cols %>%
     ggplot(aes(optimal, parameter, fill = parameter)) +
     geom_violin(scale = "width", trim = FALSE) +
     geom_boxplot(width = 0.3, fill = "white") +
     labs(fill = "Parameter") +
     scale_x_log10() +
-    scale_y_discrete(labels = parse(text = param_names)) +
+    scale_y_discrete(limits = rev, labels = rev(color_labels)) +
     scale_fill_manual(values = param_pal, breaks = color_breaks, label = color_labels) +
     xlab("Optimized value") +
     ylab("Parameter") +
-    ggtitle("Optimal parameter value distributions") +
-    theme1 +
+    theme_paper +
     theme(plot.title = element_text(size = 24),
           text = element_text(size = 20),
-          axis.text.y = element_text(size = 20),
-          legend.position = "bottom") +
+          axis.text.y = element_text(size = 20)) +
   guides(fill = guide_legend(nrow = 1))
 
-opt_param_violin
-```
-
-```{r}
 # save plot
-ggsave(out_png("opt_param_violin"),
+ggsave(out_png("param_dists/opt_param_violin"),
        opt_param_violin, width = 7.5, height = 5)
+
+opt_param_violin
 ```
 
 ### Compound parameters
 
 ```{r}
-param_df_wide <- param_df_wide %>%
+opt_param_df_wide <- param_df_wide %>%
+  select(run, OPT_alpha:OPT_tau)
+
+names(opt_param_df_wide) <- str_remove(names(opt_param_df_wide), "OPT_")
+
+opt_param_df_wide <- opt_param_df_wide %>%
   mutate(alpha_beta = alpha * beta,
          beta_plus_gamma = beta + gamma,
          calc_I_ss = alpha / beta_plus_gamma,
          alpha_beta_by_beta_plus_gamma = alpha_beta / beta_plus_gamma,
          calc_X_ss = alpha_beta / (delta * beta_plus_gamma))
 
-param_df_wide
+opt_param_df_wide
 ```
+
+```{r}
+full_param_df_wide <- param_df_wide %>%
+  mutate(INIT_alpha_beta = INIT_alpha * INIT_beta,
+         INIT_beta_plus_gamma = INIT_beta + INIT_gamma,
+         INIT_calc_I_ss = INIT_alpha / INIT_beta_plus_gamma,
+         INIT_alpha_beta_by_beta_plus_gamma = INIT_alpha_beta / INIT_beta_plus_gamma,
+         INIT_calc_X_ss = INIT_alpha_beta / (INIT_delta * INIT_beta_plus_gamma),
+         OPT_alpha_beta = OPT_alpha * OPT_beta,
+         OPT_beta_plus_gamma = OPT_beta + OPT_gamma,
+         OPT_calc_I_ss = OPT_alpha / OPT_beta_plus_gamma,
+         OPT_alpha_beta_by_beta_plus_gamma = OPT_alpha_beta / OPT_beta_plus_gamma,
+         OPT_calc_X_ss = OPT_alpha_beta / (OPT_delta * OPT_beta_plus_gamma))
+```
+
 
 #### Statistics
 
-```{r}
-summary(param_df_wide)
-```
-
-#### Statistics
+##### Summary stats for all
 
 ```{r}
-param_df_wide %>%
+param_stats <- opt_param_df_wide %>%
   pivot_longer(names_to = "parameter", values_to = "value", cols = alpha:calc_X_ss) %>%
   group_by(parameter) %>%
   summarize(avg = mean(value),
@@ -1025,22 +791,53 @@ param_df_wide %>%
             med = median(value),
             mad = mad(value),
             iqr = IQR(value),
-            iqr_v_median = iqr/med)
+            iqr_v_median = iqr/med,
+            min = min(value),
+            max = max(value),
+            range_size = max - min,
+            range_oom = log10(max/min))
+
+param_stats
 ```
 
 ```{r}
-param_df_wide %>%
-  pivot_longer(names_to = "parameter", values_to = "value", cols = alpha:calc_X_ss) %>%
-  group_by(parameter) %>%
-  summarize(avg = mean(value),
-            stdev = sd(value),
-            coef_var = stdev/avg,
-            med = median(value),
-            mad = mad(value),
-            iqr = IQR(value),
-            iqr_v_median = iqr/med) %>%
-  knitr::kable()
+core_params <- c("alpha", "beta", "gamma", "delta", "tau")
+
+param_stats %>%
+  filter(parameter %in% core_params) %>%
+  mutate(parameter = factor(parameter, levels = core_params)) %>%
+  arrange(parameter)
 ```
+
+##### alpha*beta
+
+```{r}
+param_stats %>%
+  filter(parameter == "alpha_beta")
+```
+
+alpha*beta
+median = 7269
+IQR = 1.606
+IQR/median = 2.210 e -4
+
+##### beta + gamma
+
+```{r}
+param_stats %>%
+  filter(parameter == "beta_plus_gamma")
+```
+
+beta + gamma
+median = 0.173
+IQR = 3.145 e -7
+IQR/median = 1.821 e -6
+
+```{r}
+ab_median <- 7269
+bg_median <- 0.173
+```
+
 
 #### beta + gamma - density
 
@@ -1049,62 +846,39 @@ param_df_wide %>%
 Density - not very informative bc so narrow
 
 ```{r}
-param_df_wide %>%
+opt_param_df_wide %>%
   ggplot(aes(beta_plus_gamma, ..scaled..)) +
   geom_density(fill = cb_pal[1], alpha = 0.5) +
   xlab(TeX(r'($\beta + \gamma$)')) +
   ylab("Scaled density") +
   ggtitle(TeX(r'(Distribution of $\beta + \gamma$)')) +
-  theme1
+  theme_paper
 ```
-
 
 #### alpha * beta: density
 
 ```{r}
-param_df_wide %>%
+opt_param_df_wide %>%
   ggplot(aes(alpha_beta, ..scaled..)) +
   geom_density(fill = cb_pal[1], alpha = 0.5) +
   xlab(TeX(r'($\alpha \beta$)')) +
   ylab("Scaled density") +
   ggtitle(TeX(r'(Distribution of $\alpha \beta$)')) +
-  theme1
+  theme_paper
 ```
 
 #### alpha * beta / (beta + gamma): density
 
 
 ```{r}
-param_df_wide %>%
+opt_param_df_wide %>%
   ggplot(aes(alpha_beta_by_beta_plus_gamma, ..scaled..)) +
   geom_density(fill = cb_pal[1], alpha = 0.5) +
-  xlab(TeX(r'($\frac{\alpha \beta}{\beta + \gamma}$)')) +
+  xlab(TeX(r'($\frac{\alpha \beta}{\beta + \gamma}$ (#/cell/h))')) +
   ylab("Scaled density") +
   ggtitle(TeX(r'(Distribution of $\frac{\alpha \beta}{\beta + \gamma}$)')) +
-  theme1
+  theme_paper
 ```
-
-#### alternate approach - init v opt
-
-```{r}
-alt_param_df_wide <- alt_param_df_new %>%
-  pivot_longer(initial:optimal, names_to = "init_opt", values_to = "value") %>%
-  select(run, init_opt, parameter, value) %>%
-  pivot_wider(names_from = parameter, values_from = value) %>%
-  mutate(alpha_beta = alpha * beta,
-         beta_plus_gamma = beta + gamma,
-         calc_I_ss = alpha / beta_plus_gamma,
-         alpha_beta_by_beta_plus_gamma = alpha_beta / beta_plus_gamma,
-         calc_X_ss = alpha_beta / (delta * beta_plus_gamma))
-
-alt_param_df_wide
-```
-
-
-```{r}
-alt_param_df_new
-```
-
 
 ### Grouped distributions
 
@@ -1117,7 +891,7 @@ alpha_raw <- param_df %>%
   filter(parameter == "alpha", init_opt == "initial") %>%
   mutate(raw_filtered = "raw")
 
-alpha_filtered <- param_df_new %>%
+alpha_filtered <- param_df_filtered %>%
   filter(parameter == "alpha", init_opt == "initial") %>%
   mutate(raw_filtered = "filtered")
 
@@ -1129,9 +903,9 @@ alpha_raw_filtered <- rbind(alpha_raw, alpha_filtered) %>%
   scale_x_log10() +
   labs(fill = "Values") +
   ylab("Density") +
-  xlab(TeX(r'($\alpha$ (1/h))')) +
+  xlab(TeX(r'($\alpha$ (#/cell/h))')) +
   ggtitle(TeX(r'($\alpha$)')) +
-  theme1
+  theme_paper
 
 alpha_raw_filtered
 ```
@@ -1144,7 +918,7 @@ beta_raw <- param_df %>%
   filter(parameter == "beta", init_opt == "initial") %>%
   mutate(raw_filtered = "raw")
 
-beta_filtered <- param_df_new %>%
+beta_filtered <- param_df_filtered %>%
   filter(parameter == "beta", init_opt == "initial") %>%
   mutate(raw_filtered = "filtered")
 
@@ -1157,9 +931,9 @@ beta_raw_filtered <- rbind(beta_raw, beta_filtered) %>%
   scale_x_log10() +
   labs(fill = "Values") +
   ylab("Density") +
-  xlab(TeX(r'($\beta$ (1/h))')) +
+  xlab(TeX(r'($\beta$ ($h^{-1}$))')) +
   ggtitle(TeX(r'($\beta$)')) +
-  theme1
+  theme_paper
 
 beta_raw_filtered
 ```
@@ -1171,7 +945,7 @@ gamma_raw <- param_df %>%
   filter(parameter == "gamma", init_opt == "initial") %>%
   mutate(raw_filtered = "raw")
 
-gamma_filtered <- param_df_new %>%
+gamma_filtered <- param_df_filtered %>%
   filter(parameter == "gamma", init_opt == "initial") %>%
   mutate(raw_filtered = "filtered")
 
@@ -1184,22 +958,21 @@ gamma_raw_filtered <- rbind(gamma_raw, gamma_filtered) %>%
   scale_x_log10() +
   labs(fill = "Values") +
   ylab("Density") +
-  xlab(TeX(r'($\gamma$ (1/h))')) +
+  xlab(TeX(r'($\gamma$ ($h^{-1}$))')) +
   ggtitle(TeX(r'($\gamma$)')) +
-  theme1
+  theme_paper
 
 gamma_raw_filtered
 ```
 
 ##### delta
 
-
 ```{r}
 delta_raw <- param_df %>%
   filter(parameter == "delta", init_opt == "initial") %>%
   mutate(raw_filtered = "raw")
 
-delta_filtered <- param_df_new %>%
+delta_filtered <- param_df_filtered %>%
   filter(parameter == "delta", init_opt == "initial") %>%
   mutate(raw_filtered = "filtered")
 
@@ -1213,9 +986,9 @@ delta_raw_filtered <- rbind(delta_raw, delta_filtered) %>%
   #scale_y_log10() +
   labs(fill = "Values") +
   ylab("Density") +
-  xlab(TeX(r'($\delta$ (1/h))')) +
+  xlab(TeX(r'($\delta$ ($h^{-1}$))')) +
   ggtitle(TeX(r'($\delta$)')) +
-  theme1
+  theme_paper
 
 delta_raw_filtered
 ```
@@ -1227,7 +1000,7 @@ tau_raw <- param_df %>%
   filter(parameter == "tau", init_opt == "initial") %>%
   mutate(raw_filtered = "raw")
 
-tau_filtered <- param_df_new %>%
+tau_filtered <- param_df_filtered %>%
   filter(parameter == "tau", init_opt == "initial") %>%
   mutate(raw_filtered = "filtered")
 
@@ -1241,73 +1014,37 @@ tau_raw_filtered <- rbind(tau_raw, tau_filtered) %>%
   #scale_y_log10() +
   labs(fill = "Values") +
   ylab("Density") +
-  xlab(TeX(r'($\tau$ (1/h))')) +
+  xlab(TeX(r'($\tau$ ($h^{-1}$))')) +
   ggtitle(TeX(r'($\tau$)')) +
-  theme1
+  theme_paper
 
 tau_raw_filtered
-```
-
-##### kappa
-
-```{r}
-kappa_raw <- param_df %>%
-  filter(parameter == "kappa", init_opt == "initial") %>%
-  mutate(raw_filtered = "raw")
-
-kappa_filtered <- param_df_new %>%
-  filter(parameter == "kappa", init_opt == "initial") %>%
-  mutate(raw_filtered = "filtered")
-
-kappa_raw_filtered <- rbind(kappa_raw, kappa_filtered) %>%
-  mutate(raw_filtered = factor(raw_filtered, levels = c("raw", "filtered"))) %>%
-  #ggplot(aes(value, fill = raw_filtered)) +
-  ggplot(aes(value, fill = raw_filtered, ..scaled..)) +
-  geom_density(alpha = 0.7) +
-  scale_fill_manual(values = cb_pal[c(6,1)]) +
-  #scale_x_log10() +
-  #scale_y_log10() +
-  labs(fill = "Values") +
-  ylab("Density") +
-  xlab(TeX(r'($\kappa$ (1/h))')) +
-  ggtitle(TeX(r'($\kappa$)')) +
-  theme1
-
-kappa_raw_filtered
 ```
 
 ##### Combined plot
 
 ```{r}
 init_val_density_raw_filtered <- 
-  (alpha_raw_filtered + beta_raw_filtered + gamma_raw_filtered) /
-  (delta_raw_filtered + tau_raw_filtered + kappa_raw_filtered) +
-  plot_layout(guides = "collect") +
-  plot_annotation(
-    title = "Initial parameter values"
-  ) &
+  alpha_raw_filtered + beta_raw_filtered + gamma_raw_filtered + delta_raw_filtered + tau_raw_filtered +
+  plot_layout(nrow = 1, guides = "collect") &
   theme(plot.title = element_text(size = 24, hjust = 0.5),
         legend.text = element_text(size = 18),
         legend.title = element_text(size = 20),
-        legend.position = "bottom")
+        legend.position = "right")
+
+# save plot
+ggsave(out_png("param_dists/init_val_density_raw_filtered"),
+       init_val_density_raw_filtered, width = 20, height = 3.5)
 
 init_val_density_raw_filtered
 ```
-
-```{r}
-# save plot
-ggsave(out_png("init_val_density_raw_filtered"),
-       init_val_density_raw_filtered, width = 12, height = 6)
-```
-
 
 #### Initial and optimal distributions
 
 ##### alpha
 
-
 ```{r}
-alpha_init_opt_density <- param_df_new %>%
+alpha_init_opt_density <- param_df_filtered %>%
   filter(parameter == "alpha") %>%
 #  ggplot(aes(value, fill = init_opt)) +
   ggplot(aes(value, fill = init_opt, ..scaled..)) +
@@ -1318,7 +1055,7 @@ alpha_init_opt_density <- param_df_new %>%
   ylab("Density") +
   xlab(TeX(r'($\alpha$ (#/cell/h))')) +
   ggtitle(TeX(r'($\alpha$)')) +
-  theme1
+  theme_paper
 
 alpha_init_opt_density
 ```
@@ -1327,7 +1064,7 @@ alpha_init_opt_density
 ##### beta
 
 ```{r}
-beta_init_opt_density <- param_df_new %>%
+beta_init_opt_density <- param_df_filtered %>%
   filter(parameter == "beta") %>%
   #ggplot(aes(value, fill = init_opt)) +
   ggplot(aes(value, fill = init_opt, ..scaled..)) +
@@ -1336,9 +1073,9 @@ beta_init_opt_density <- param_df_new %>%
   scale_x_log10() +
   labs(fill = "Values") +
   ylab("Density") +
-  xlab(TeX(r'($\beta$ (1/h))')) +
+  xlab(TeX(r'($\beta$ ($h^{-1}$))')) +
   ggtitle(TeX(r'($\beta$)')) +
-  theme1
+  theme_paper
 
 beta_init_opt_density
 ```
@@ -1348,7 +1085,7 @@ Note that the maximum optimal value of ~ 0.2 is not artificially imposed by opti
 ##### gamma
 
 ```{r}
-gamma_init_opt_density <- param_df_new %>%
+gamma_init_opt_density <- param_df_filtered %>%
   filter(parameter == "gamma") %>%
   #ggplot(aes(value, fill = init_opt)) +
   ggplot(aes(value, fill = init_opt, ..scaled..)) +
@@ -1357,9 +1094,9 @@ gamma_init_opt_density <- param_df_new %>%
   scale_x_log10() +
   labs(fill = "Values") +
   ylab("Density") +
-  xlab(TeX(r'($\gamma$ (1/h))')) +
+  xlab(TeX(r'($\gamma$ ($h^{-1}$))')) +
   ggtitle(TeX(r'($\gamma$)')) +
-  theme1
+  theme_paper
 
 gamma_init_opt_density
 ```
@@ -1367,7 +1104,7 @@ gamma_init_opt_density
 ##### delta
 
 ```{r}
-delta_init_opt_density <- param_df_new %>%
+delta_init_opt_density <- param_df_filtered %>%
   filter(parameter == "delta") %>%
   #ggplot(aes(value, fill = init_opt)) +
   ggplot(aes(value, fill = init_opt, ..scaled..)) +
@@ -1377,9 +1114,9 @@ delta_init_opt_density <- param_df_new %>%
   #scale_y_log10() +
   labs(fill = "Values") +
   ylab("Density") +
-  xlab(TeX(r'($\delta$ (1/h))')) +
+  xlab(TeX(r'($\delta$ ($h^{-1}$))')) +
   ggtitle(TeX(r'($\delta$)')) +
-  theme1
+  theme_paper
 
 delta_init_opt_density
 ```
@@ -1387,7 +1124,7 @@ delta_init_opt_density
 ##### tau
 
 ```{r}
-tau_init_opt_density <- param_df_new %>%
+tau_init_opt_density <- param_df_filtered %>%
   filter(parameter == "tau") %>%
   #ggplot(aes(value, fill = init_opt)) +
   ggplot(aes(value, fill = init_opt, ..scaled..)) +
@@ -1399,37 +1136,18 @@ tau_init_opt_density <- param_df_new %>%
   ylab("Density") +
   xlab(TeX(r'($\tau$ (h))')) +
   ggtitle(TeX(r'($\tau$)')) +
-  theme1
+  theme_paper
 
 tau_init_opt_density
 ```
 
-##### kappa
-
-```{r}
-kappa_init_opt_density <- param_df_new %>%
-  filter(parameter == "kappa") %>%
-  #ggplot(aes(value, fill = init_opt)) +
-  ggplot(aes(value, fill = init_opt, ..scaled..)) +
-  geom_density(alpha = 0.7) +
-  scale_fill_manual(values = cb_pal[c(6,1)]) +
-  #scale_x_log10() +
-  #scale_y_log10() +
-  labs(fill = "Values") +
-  ylab("Density") +
-  xlab(TeX(r'($\kappa$ (1/h))')) +
-  ggtitle(TeX(r'($\kappa$)')) +
-  theme1
-
-kappa_init_opt_density
-```
 
 ##### Combined plot
 
 ```{r}
 init_opt_density <- 
   (alpha_init_opt_density + beta_init_opt_density + gamma_init_opt_density) /
-  (delta_init_opt_density + kappa_init_opt_density + tau_init_opt_density) +
+  (delta_init_opt_density + tau_init_opt_density + plot_spacer()) +
   plot_layout(guides = "collect") +
   plot_annotation(
     title = "Distributions of core parameters"
@@ -1439,13 +1157,29 @@ init_opt_density <-
         legend.title = element_text(size = 20),
         legend.position = "bottom")
 
+# save plot
+ggsave(out_png("param_dists/init_opt_density"),
+       init_opt_density, width = 12, height = 6)
+
 init_opt_density
 ```
 
+##### Poster version
+
 ```{r}
+init_opt_density_poster <- (alpha_init_opt_density + beta_init_opt_density  + 
+     gamma_init_opt_density + delta_init_opt_density + tau_init_opt_density) +
+  plot_layout(nrow = 1, guides = "collect") &
+  theme(plot.title = element_text(size = 24, hjust = 0.5),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 20),
+        legend.position = "right")
+
 # save plot
-ggsave(out_png("init_opt_density"),
-       init_opt_density, width = 12, height = 6)
+ggsave(out_png("param_dists/init_opt_density_poster"),
+       init_opt_density_poster, width = 20, height = 3.5)
+
+init_opt_density_poster
 ```
 
 #### Calculated variables - initial and optimal
@@ -1453,7 +1187,7 @@ ggsave(out_png("init_opt_density"),
 ##### alpha times beta
 
 ```{r}
-alpha_beta_init_opt_density <- alt_param_df_wide %>%
+alpha_beta_init_opt_density <- param_df_param_cols %>%
   ggplot(aes(alpha_beta, fill = init_opt, ..scaled..)) +
   geom_density(alpha = 0.7) +
   scale_fill_manual(values = cb_pal[c(6,1)]) +
@@ -1461,9 +1195,9 @@ alpha_beta_init_opt_density <- alt_param_df_wide %>%
   #scale_y_log10() +
   labs(fill = "Values") +
   ylab("Density") +
-  xlab(TeX(r'($\alpha \beta$ (#/cell/h^2))')) +
-  ggtitle(TeX(r'($\alpha \beta$)')) +
-  theme1
+  xlab(TeX(r'($\alpha \beta$ (#/cell/$h^2$))')) +
+  ggtitle(TeX(r'($c_1 = \alpha \beta$)')) +
+  theme_paper
 
 alpha_beta_init_opt_density
 ```
@@ -1471,7 +1205,7 @@ alpha_beta_init_opt_density
 ##### Beta plus gamma
 
 ```{r}
-beta_plus_gamma_init_opt_density <- alt_param_df_wide %>%
+beta_plus_gamma_init_opt_density <- param_df_param_cols %>%
   ggplot(aes(beta_plus_gamma, fill = init_opt, ..scaled..)) +
   geom_density(alpha = 0.7) +
   scale_fill_manual(values = cb_pal[c(6,1)]) +
@@ -1479,35 +1213,34 @@ beta_plus_gamma_init_opt_density <- alt_param_df_wide %>%
   #scale_y_log10() +
   labs(fill = "Values") +
   ylab("Density") +
-  xlab(TeX(r'($\beta + \gamma$ (1/h))')) +
-  ggtitle(TeX(r'($\beta + \gamma$)')) +
-  theme1
+  xlab(TeX(r'($\beta + \gamma$ ($h^{-1}$))')) +
+  ggtitle(TeX(r'($c_2 = \beta + \gamma$)')) +
+  theme_paper
 
 beta_plus_gamma_init_opt_density
 ```
+
 
 ##### Combined plot
 
 ```{r}
 calc_vars_init_opt_density <- 
   alpha_beta_init_opt_density + beta_plus_gamma_init_opt_density +
-  plot_layout(guides = "collect") +
-  plot_annotation(
-    title = "Distributions of calculated parameters"
-  ) &
-  theme(plot.title = element_text(size = 24, hjust = 0.5))
+  plot_layout(guides = "collect")  &
+  theme(plot.title = element_text(size = 24, hjust = 0.5),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 20),
+        legend.position = "right")
+
+# save plot
+ggsave(out_png("param_dists/calc_vars_init_opt_density"),
+       calc_vars_init_opt_density, width = 12, height = 4)
 
 calc_vars_init_opt_density
 ```
 
-```{r}
-# save plot
-ggsave(out_png("calc_vars_init_opt_density"),
-       calc_vars_init_opt_density, width = 8, height = 4)
-```
 
 
-#
 
 ### Relationships between variables
 
@@ -1516,12 +1249,12 @@ ggsave(out_png("calc_vars_init_opt_density"),
 Plot optimal value vs initial value for the parameters being optimized.
 
 ```{r}
-opt_v_init_scatter <- alt_param_df_new %>%
+opt_v_init_scatter <- param_df_init_opt_cols %>%
   ggplot(aes(initial, optimal, fill = parameter)) +
   geom_point(alpha = 0.25, color = "black", shape = 21) +
   facet_wrap(~ parameter, scales = "free", labeller = label_parsed) +
   scale_fill_manual(values = param_pal, breaks = color_breaks, label = color_labels) +
-  theme1 +
+  theme_paper +
   scale_x_log10() +
   scale_y_log10() +
   theme(plot.title = element_text(size = 24),
@@ -1532,71 +1265,62 @@ opt_v_init_scatter <- alt_param_df_new %>%
   labs(fill = "Parameter") +
   guides(fill = guide_legend(override.aes = list(alpha = 1, size = 3)))
 
-opt_v_init_scatter
-```
-
-
-```{r}
 # save plot
-ggsave(out_png("opt_v_init_scatter"),
+ggsave(out_png("relationships/opt_v_init_scatter"),
        opt_v_init_scatter, width = 10, height = 5)
+
+opt_v_init_scatter
 ```
 
 #### Parameter correlations
 
 ##### Standard correlogram
 
-
 ```{r}
-corr_pair_plot <- param_df_wide %>%
+corr_pair_plot <- opt_df_filtered %>%
   select(alpha:tau) %>%
   ggpairs(., upper = list(continuous = wrap('cor', size = 8)), labeller = label_parsed) +
-  theme1 +
+  theme_paper +
   theme(strip.text = element_text(size = 24),
         axis.text.x = element_text(angle = 45, hjust = 1))
+
+# save plot
+ggsave(out_png("relationships/corr_pair_plot"),
+       corr_pair_plot, width = 15, height = 12)
 
 corr_pair_plot
 ```
 
 
 
-The most robust relationship is between gamma and beta, which are strictly linearly related ($r = 1$). alpha is moderately positively correlated to gamma ($r = .530$) and moderately negatively correlated to beta ($r = -.539$), with both of these relationships appearing hyperbolic rather than linear.
+The most robust relationship is between gamma and beta, which are strictly linearly related ($r = 1$). alpha is moderately positively correlated to gamma ($r = .613$) and moderately negatively correlated to beta ($r = -.631$), with both of these relationships appearing hyperbolic rather than linear.
 
-(Based on correlation coefficients alone, there is an apparent relationship between delta and both beta and gamma; however, because delta is extremely constrained around a fixed value of .02, these correlations appear driven by outliers rather than by true relationships between parameters.)
-
-```{r}
-# save plot
-ggsave(out_png("corr_pair_plot"),
-       corr_pair_plot, width = 15, height = 12)
-```
+(Based on correlation coefficients alone, there are apparent relationships between all variables and delta and tau; however, because delta and tau are both strictly constrained, these correlations appear driven by outliers rather than by true relationships between parameters.)
 
 ##### alpha vs (beta + gamma)
 
 ```{r}
-alpha_v_beta_plus_gamma <- alt_param_df_new %>%
+alpha_v_beta_plus_gamma <- param_df_init_opt_cols %>%
   filter(parameter %in% c("alpha", "beta", "gamma")) %>%
-  select(-initial, -total_cost) %>%
+  select(-initial) %>%
   pivot_wider(names_from = "parameter", values_from = "optimal") %>%
   mutate(beta_gamma = beta + gamma) %>%
   ggplot(aes(alpha, beta_gamma)) +
   geom_point() +
   scale_x_log10() +
   scale_y_log10() +
-  theme1 +
+  theme_paper +
   xlab(TeX(r'($\alpha$ (#/cell/h))')) +
-  ylab(TeX(r'($\beta + \gamma$ (1/h))'))
+  ylab(TeX(r'($\beta + \gamma$ ($h^{-1}$))'))
+
+# save plot
+ggsave(out_png("relationships/alpha_v_beta_plus_gamma"),
+       alpha_v_beta_plus_gamma, width = 4, height = 3)
 
 alpha_v_beta_plus_gamma
 ```
 
-```{r}
-# save plot
-ggsave(out_png("alpha_v_beta_plus_gamma"),
-       alpha_v_beta_plus_gamma, width = 4, height = 3)
-```
-
-
-The sum of beta and gamma is generally fixed around a constant value of 0.191.
+The sum of beta and gamma is generally fixed around a constant value of 0.173.
 
 ##### I versus alpha/(beta+gamma)
 
@@ -1609,24 +1333,27 @@ constitutive_df_72h <- constitutive_sims %>%
 
 I_obs_v_calc <- constitutive_df_72h  %>%
   ggplot(aes(I_coeff, I_72)) +
-  geom_point(alpha = 0.3) +
+  geom_abline(slope = 1, intercept = 0, col = cb_pal[4], size = 3) +
+  annotate("segment", x = 1.7e6, xend = 3e6, y = 6e6, yend = 3e6, col = cb_pal[4]) +
+  geom_hline(yintercept = ab_median / (bg_median^2), color = cb_pal[2], lty = 2, size = 1) +
+  geom_vline(xintercept = ab_median / (bg_median^2), color = cb_pal[2], lty = 2, size = 1) +
+  geom_point(alpha = 0.05, size = 5) +
+  annotate("text", x = 1e6, y = 1.3e7, col = cb_pal[4], family = "serif", size = 10,
+           label = TeX(r'($I_{SS}=\frac{\alpha}{\beta + \gamma}$)')) +
   scale_x_log10() +
   scale_y_log10() +
-  theme1 +
+  theme_paper +
   xlab(TeX(r'($\frac{\alpha}{\beta + \gamma}$ (#/cell))')) +
-  ylab(TeX(r'(Observed $\bar{I}$ (#/cell))')) #+
+  ylab(TeX(r'(Observed $I_{SS}$ (#/cell))'))
+
 #  ggtitle(TeX(r'(Calculated and observed $\bar{I}$)'))
+
+# save plot
+ggsave(out_png("relationships/I_obs_v_calc"),
+       I_obs_v_calc, width = 6, height = 4.5)
 
 I_obs_v_calc
 ```
-
-```{r}
-# save plot
-ggsave(out_png("I_obs_v_calc"),
-       I_obs_v_calc, width = 4, height = 3)
-```
-
-
 
 ```{r}
 cor(constitutive_df_72h$I_72, constitutive_df_72h$I_coeff)
@@ -1642,148 +1369,118 @@ The most robust relationships are:
 ##### alpha vs all
 
 ```{r}
-param_df_wide %>%
+opt_df_filtered %>%
   pivot_longer(cols = beta:tau, names_to = "parameter", values_to = "value") %>%
   ggplot(aes(alpha, value)) +
   geom_point(alpha = 0.3) +
   facet_wrap(~ parameter, scales = "free", labeller = label_parsed) +
   scale_x_continuous(trans = "log10", breaks = c(3e4, 3e5, 3e6)) +
-  theme1 +
+  theme_paper +
   xlab(expression(alpha))
 ```
 
 ##### alpha vs beta
 
 ```{r}
-alpha_v_beta <- param_df_wide %>%
+alpha_v_beta <- opt_df_filtered %>%
   ggplot(aes(alpha, beta)) +
   geom_point(alpha = 0.5) +
   scale_x_continuous(trans = "log10", breaks = c(3e4, 3e5, 3e6)) +
   #scale_y_log10() +
   #ggtitle("beta versus alpha") +
-  theme1 +
+  theme_paper +
   xlab(TeX(r'($\alpha$ (#/cell/h))')) +
-  ylab(TeX(r'($\beta$ (1/h))'))
+  ylab(TeX(r'($\beta$ ($h^{-1}$))'))
 
+# save plot
+ggsave(out_png("relationships/alpha_v_beta"),
+       alpha_v_beta, width = 4, height = 3)
 
 alpha_v_beta
 ```
-
-```{r}
-# save plot
-ggsave(out_png("alpha_v_beta"),
-       alpha_v_beta, width = 4, height = 3)
-```
-
 
 Hyperbolic (not shown: log-log-linear) relationship: beta is determined by the value of alpha, with increased alpha associated with decreased beta.
 
 ##### alpha vs gamma
 
 ```{r}
-alpha_v_gamma <- param_df_wide %>%
+alpha_v_gamma <- opt_df_filtered %>%
   ggplot(aes(alpha, gamma)) +
   geom_point(alpha = 0.5) +
   scale_x_continuous(trans = "log10", breaks = c(3e4, 3e5, 3e6)) +
   #scale_y_log10() +
   #ggtitle("gamma versus alpha") +
-  theme1 +
+  theme_paper +
   xlab(TeX(r'($\alpha$ (#/cell/h))')) +
-  ylab(TeX(r'($\gamma$ (1/h))'))
+  ylab(TeX(r'($\gamma$ ($h^{-1}$))'))
+
+# save plot
+ggsave(out_png("relationships/alpha_v_gamma"),
+       alpha_v_gamma, width = 4, height = 3)
 
 alpha_v_gamma
 ```
 
 Hyperbolic relationship between alpha and gamma, with increased alpha associated with increased gamma (not shown - hyperbolic in all log/linear scale plots). Below a alpha threshold of ~ 3e4 #/cell/h, gamma goes to 0. (This is rational because below this threshold, all I made must be secreted rather than degraded in order to generate (or approach) the expected concentration of X.)
 
-```{r}
-# save plot
-ggsave(out_png("alpha_v_gamma"),
-       alpha_v_gamma, width = 4, height = 3)
-```
-
 ##### alpha vs delta
 
 ```{r}
-alpha_v_delta <- param_df_wide %>%
+alpha_v_delta <- opt_df_filtered %>%
   ggplot(aes(alpha, delta)) +
   geom_point(alpha = 0.5) +
   scale_x_continuous(trans = "log10", breaks = c(3e4, 3e5, 3e6)) +
   #ggtitle("delta versus alpha") +
-  theme1 +
+  theme_paper +
   xlab(TeX(r'($\alpha$ (#/cell/h))')) +
-  ylab(TeX(r'($\delta$ (1/h))'))
+  ylab(TeX(r'($\delta$ ($h^{-1}$))'))
 
 alpha_v_delta
 ```
 
 ```{r}
-summary(param_df_wide$delta)
+summary(opt_df_filtered$delta)
 ```
 
-For all values of alpha above a threshold of 3e4 #/cell/h, delta is essentially fixed at a value of .0204 1/h. Below that threshold, delta decreases. (This is rational because below this threshold, all secreted X must not be degraded in order to generate (or approach) the expected concentration of X.)
+For all values of alpha above a threshold of 3e4 #/cell/h, delta is essentially fixed at a value of .0574 1/h. Below that threshold, delta decreases. (This is rational because below this threshold, all secreted X must not be degraded in order to generate (or approach) the expected concentration of X.)
 
 ##### alpha vs tau
 
 ```{r}
-alpha_v_tau <- param_df_wide %>%
+alpha_v_tau <- opt_df_filtered %>%
   ggplot(aes(alpha, tau)) +
   geom_point(alpha = 0.5) +
   scale_x_continuous(trans = "log10", breaks = c(3e4, 3e5, 3e6)) +
   #ggtitle("tau versus alpha") +
-  theme1 +
+  theme_paper +
   xlab(TeX(r'($\alpha$ (#/cell/h))')) +
-  ylab(TeX(r'($\tau$ (1/h))'))
+  ylab(TeX(r'($\tau$ ($h^{-1}$))'))
 
 alpha_v_tau
 ```
 
 ```{r}
-summary(param_df_wide$tau)
+summary(opt_df_filtered$tau)
 ```
 
-In most cases, tau is fixed at approximately 1.76 h. As with other parameters, this relationship becomes weaker when alpha < 3e4 #/cell/h.
-
-##### alpha vs kappa
-
-```{r}
-alpha_v_kappa <- param_df_wide %>%
-  ggplot(aes(alpha, kappa)) +
-  geom_point(alpha = 0.5) +
-  scale_x_continuous(trans = "log10", breaks = c(3e4, 3e5, 3e6)) +
-  #ggtitle("kappa versus alpha") +
-  theme1 +
-  xlab(TeX(r'($\alpha$ (#/cell/h))')) +
-  ylab(TeX(r'($\kappa$ (1/h))'))
-
-alpha_v_kappa
-```
-
-```{r}
-summary(param_df_wide$kappa)
-```
-
-In most cases, tau is fixed at approximately 9.0 1/h. As with other parameters, this relationship becomes weaker when alpha < 3e4 #/cell/h.
-
+In most cases, tau is fixed at approximately 1.96 h. As with other parameters, this relationship becomes weaker when alpha < 3e4 #/cell/h.
 
 ##### beta vs gamma
 
 ```{r}
-beta_v_gamma <- param_df_wide %>%
+beta_v_gamma <- opt_df_filtered %>%
   ggplot(aes(beta, gamma)) +
   geom_point(alpha = 0.5) +
   #ggtitle("gamma versus beta") +
-  theme1 +
-  xlab(TeX(r'($\beta$ (1/h))')) +
-  ylab(TeX(r'($\gamma$ (1/h))'))
+  theme_paper +
+  xlab(TeX(r'($\beta$ ($h^{-1}$))')) +
+  ylab(TeX(r'($\gamma$ ($h^{-1}$))'))
+
+# save plot
+ggsave(out_png("relationships/beta_v_gamma"),
+       beta_v_gamma, width = 4, height = 3)
 
 beta_v_gamma
-```
-
-```{r}
-# save plot
-ggsave(out_png("beta_v_gamma"),
-       beta_v_gamma, width = 4, height = 3)
 ```
 
 There is a linear relationship between gamma and beta: as one increases, the other decreases such that the sum of gamma and beta is generally fixed around .191 (see distribution of beta + gamma)
@@ -1791,391 +1488,112 @@ There is a linear relationship between gamma and beta: as one increases, the oth
 ##### beta vs delta
 
 ```{r}
-beta_v_delta <- param_df_wide %>%
+beta_v_delta <- opt_df_filtered %>%
   filter(delta > 1e-5) %>%    # 33 outliers removed
   ggplot(aes(beta, delta)) +
   geom_point(alpha = 0.5) +
   #scale_x_log10() +
   #scale_y_log10() +
   #ggtitle("delta versus beta") +
-  theme1 +
-  xlab(TeX(r'($\beta$ (1/h))')) +
-  ylab(TeX(r'($\delta$ (1/h))'))
+  theme_paper +
+  xlab(TeX(r'($\beta$ ($h^{-1}$))')) +
+  ylab(TeX(r'($\delta$ ($h^{-1}$))'))
 
 beta_v_delta
 ```
 
-For all values of beta, delta is essentially fixed at a value of .0204 1/h.
+For all values of beta, delta is essentially fixed at a value of .0574 1/h.
 
 (The outliers at high beta and low delta correspond to very low alpha values, meaning that in order to reach desired X concentrations, all I must be secreted and no X must be degraded.)
 
 ##### beta vs tau
 
 ```{r}
-beta_v_tau <- param_df_wide %>%
+beta_v_tau <- opt_df_filtered %>%
   ggplot(aes(beta, tau)) +
   geom_point(alpha = 0.5) +
   #ggtitle("tau versus beta") +
-  theme1 +
-  xlab(TeX(r'($\beta$ (1/h))')) +
+  theme_paper +
+  xlab(TeX(r'($\beta$ ($h^{-1}$))')) +
   ylab(TeX(r'($\tau$ (h))'))
 
 beta_v_tau
 ```
 
-tau is fixed at 1.76 independent of beta.
-
-##### beta vs_kappa
-
-```{r}
-beta_v_kappa <- param_df_wide %>%
-  ggplot(aes(beta, kappa)) +
-  geom_point(alpha = 0.5) +
-  #ggtitle("kappa versus beta") +
-  #scale_x_log10() +
-  theme1 +
-  xlab(TeX(r'($\beta$ (1/h))')) +
-  ylab(TeX(r'($\kappa$ (1/h))'))
-
-beta_v_kappa
-```
-
-kappa is fixed at 9.0 independent of beta.
+tau is fixed at 1.96 independent of beta.
 
 ##### gamma vs delta
 
 ```{r}
-gamma_v_delta <- param_df_wide %>%
+gamma_v_delta <- opt_df_filtered %>%
   ggplot(aes(gamma, delta)) +
   geom_point(alpha = 0.5) +
   #scale_x_log10() +
   #scale_y_log10() +
   #ggtitle("delta versus gamma") +
-  theme1 +
-  xlab(TeX(r'($\gamma$ (1/h))')) +
-  ylab(TeX(r'($\delta$ (1/h))'))
+  theme_paper +
+  xlab(TeX(r'($\gamma$ ($h^{-1}$))')) +
+  ylab(TeX(r'($\delta$ ($h^{-1}$))'))
 
 gamma_v_delta
 ```
 
-delta is fixed around .0204 independent of gamma.
+delta is fixed around .0574 independent of gamma.
 
 ##### gamma vs tau
 
 ```{r}
-gamma_v_tau <- param_df_wide %>%
+gamma_v_tau <- opt_df_filtered %>%
   ggplot(aes(gamma, tau)) +
   geom_point(alpha = 0.5) +
   #ggtitle("tau versus gamma") +
-  theme1 +
-  xlab(TeX(r'($\gamma$ (1/h))')) +
+  theme_paper +
+  xlab(TeX(r'($\gamma$ ($h^{-1}$))')) +
   ylab(TeX(r'($\tau$ (h))'))
 
 gamma_v_tau
 ```
 
-tau is fixed around 1.76 independent of gamma.
-
-##### gamma vs_kappa
-
-```{r}
-gamma_v_kappa <- param_df_wide %>%
-  ggplot(aes(gamma, kappa)) +
-  geom_point(alpha = 0.5) +
-  #ggtitle("kappa versus gamma") +
-  #scale_x_log10() +
-  theme1 +
-  xlab(TeX(r'($\gamma$ (1/h))')) +
-  ylab(TeX(r'($\kappa$ (1/h))'))
-
-gamma_v_kappa
-```
-
-kappa is fixed around 9.0 independent of gamma.
+tau is fixed around 1.96 independent of gamma.
 
 ##### delta vs tau
 
 ```{r}
-delta_v_tau <- param_df_wide %>%
+delta_v_tau <- opt_df_filtered %>%
   ggplot(aes(delta, tau)) +
   geom_point(alpha = 0.5) +
   #ggtitle("tau versus delta") +
-  theme1 +
-  xlab(TeX(r'($\delta$ (1/h))')) +
+  theme_paper +
+  xlab(TeX(r'($\delta$ ($h^{-1}$))')) +
   ylab(TeX(r'($\tau$ (h))'))
 
 delta_v_tau
 ```
 
-delta is fixed around .0204 and tau is fixed around 1.76, except for a handful of outliers.
-
-##### delta vs_kappa
-
-```{r}
-delta_v_kappa <- param_df_wide %>%
-  #filter(delta < 2) %>%     # 10 outliers removed
-  filter(delta > 1e-5) %>%   # 33 outliers removed
-  ggplot(aes(delta, kappa)) +
-  geom_point(alpha = 0.5) +
-  #ggtitle("kappa versus delta") +
-  #scale_x_log10() +
-  theme1 +
-  xlab(TeX(r'($\delta$ (1/h))')) +
-  ylab(TeX(r'($\kappa$ (1/h))'))
-
-delta_v_kappa
-```
-
-delta is fixed around .0204 and kappa is fixed around 9.0, except for a handful of outliers.
-
-##### tau vs_kappa
-
-```{r}
-tau_v_kappa <- param_df_wide %>%
-  ggplot(aes(tau, kappa)) +
-  geom_point(alpha = 0.5) +
-  #ggtitle("kappa versus tau") +
-  #scale_x_log10() +
-  theme1 +
-  xlab(TeX(r'($\tau$ (h))')) +
-  ylab(TeX(r'($\kappa$ (1/h))'))
-
-tau_v_kappa
-```
-
-tau is fixed around 1.76 and kappa is fixed around 9.0, except for a handful of outliers.
+delta is fixed around .0574 and tau is fixed around 1.96, except for a handful of outliers.
 
 #### Combined plot
 
 ```{r}
-combo_corr_plot <- alpha_v_beta + plot_spacer() + plot_spacer() + plot_spacer() + plot_spacer() + 
-  alpha_v_gamma +beta_v_gamma + plot_spacer() + plot_spacer() + plot_spacer() + 
-  alpha_v_delta + beta_v_delta + gamma_v_delta + plot_spacer() + plot_spacer() +
-  alpha_v_tau + beta_v_tau + gamma_v_tau + delta_v_tau + plot_spacer() +
-  alpha_v_kappa + beta_v_kappa + gamma_v_kappa + delta_v_kappa + tau_v_kappa +
-  plot_layout(ncol = 5, nrow = 5)
+combo_corr_plot <- alpha_v_beta + plot_spacer() + plot_spacer() + plot_spacer() + 
+  alpha_v_gamma + beta_v_gamma + plot_spacer() + plot_spacer() +
+  alpha_v_delta + beta_v_delta + gamma_v_delta + plot_spacer() +
+  alpha_v_tau + beta_v_tau + gamma_v_tau + delta_v_tau + 
+  plot_layout(ncol = 4, nrow = 4)
+
+# save plot
+ggsave(out_png("relationships/combo_corr_plot"),
+       combo_corr_plot, width = 12, height = 12)
 
 combo_corr_plot
 ```
 
-```{r}
-# save plot
-ggsave(out_png("combo_corr_plot"),
-       combo_corr_plot, width = 15, height = 15)
-```
-
-
-
-
-
-
-
-### Initial and optimal distributions
-
-#### alpha
-
-
-```{r}
-alpha_init_opt_density <- param_df_new %>%
-  filter(parameter == "alpha") %>%
-#  ggplot(aes(value, fill = init_opt)) +
-  ggplot(aes(value, fill = init_opt, ..scaled..)) +
-  geom_density(alpha = 0.7) +
-  scale_fill_manual(values = cb_pal[c(6,1)]) +
-  scale_x_log10() +
-  labs(fill = "Values") +
-  ylab("Density") +
-  xlab(TeX(r'($\alpha$ (#/cell/h))')) +
-  ggtitle(TeX(r'($\alpha$)')) +
-  theme1
-
-alpha_init_opt_density
-```
-
-
-
-#### beta
-
-```{r}
-beta_init_opt_density <- param_df_new %>%
-  filter(parameter == "beta") %>%
-  #ggplot(aes(value, fill = init_opt)) +
-  ggplot(aes(value, fill = init_opt, ..scaled..)) +
-  geom_density(alpha = 0.7) +
-  scale_fill_manual(values = cb_pal[c(6,1)]) +
-  scale_x_log10() +
-  labs(fill = "Values") +
-  ylab("Density") +
-  xlab(TeX(r'($\beta$ (1/h))')) +
-  ggtitle(TeX(r'($\beta$)')) +
-  theme1
-
-beta_init_opt_density
-```
-
-Note that the maximum optimal value of ~ 0.2 is not artificially imposed by optimization bounds - this is likely related to the convergence of (beta + gamma) to ~ 0.191.
-
-#### gamma
-
-```{r}
-gamma_init_opt_density <- param_df_new %>%
-  filter(parameter == "gamma") %>%
-  #ggplot(aes(value, fill = init_opt)) +
-  ggplot(aes(value, fill = init_opt, ..scaled..)) +
-  geom_density(alpha = 0.7) +
-  scale_fill_manual(values = cb_pal[c(6,1)]) +
-  scale_x_log10() +
-  labs(fill = "Values") +
-  ylab("Density") +
-  xlab(TeX(r'($\gamma$ (1/h))')) +
-  ggtitle(TeX(r'($\gamma$)')) +
-  theme1
-
-gamma_init_opt_density
-```
-
-#### delta
-
-```{r}
-delta_init_opt_density <- param_df_new %>%
-  filter(parameter == "delta") %>%
-  #ggplot(aes(value, fill = init_opt)) +
-  ggplot(aes(value, fill = init_opt, ..scaled..)) +
-  geom_density(alpha = 0.7) +
-  scale_fill_manual(values = cb_pal[c(6,1)]) +
-  scale_x_log10() +
-  #scale_y_log10() +
-  labs(fill = "Values") +
-  ylab("Density") +
-  xlab(TeX(r'($\delta$ (1/h))')) +
-  ggtitle(TeX(r'($\delta$)')) +
-  theme1
-
-delta_init_opt_density
-```
-
-#### tau
-
-```{r}
-tau_init_opt_density <- param_df_new %>%
-  filter(parameter == "tau") %>%
-  #ggplot(aes(value, fill = init_opt)) +
-  ggplot(aes(value, fill = init_opt, ..scaled..)) +
-  geom_density(alpha = 0.7) +
-  scale_fill_manual(values = cb_pal[c(6,1)]) +
-  scale_x_log10() +
-  #scale_y_log10() +
-  labs(fill = "Values") +
-  ylab("Density") +
-  xlab(TeX(r'($\tau$ (h))')) +
-  ggtitle(TeX(r'($\tau$)')) +
-  theme1
-
-tau_init_opt_density
-```
-
-#### kappa
-
-```{r}
-kappa_init_opt_density <- param_df_new %>%
-  filter(parameter == "kappa") %>%
-  #ggplot(aes(value, fill = init_opt)) +
-  ggplot(aes(value, fill = init_opt, ..scaled..)) +
-  geom_density(alpha = 0.7) +
-  scale_fill_manual(values = cb_pal[c(6,1)]) +
-  #scale_x_log10() +
-  #scale_y_log10() +
-  labs(fill = "Values") +
-  ylab("Density") +
-  xlab(TeX(r'($\kappa$ (1/h))')) +
-  ggtitle(TeX(r'($\kappa$)')) +
-  theme1
-
-kappa_init_opt_density
-```
-
-#### Combined plot
-
-```{r}
-init_opt_density <- 
-  (alpha_init_opt_density + beta_init_opt_density + gamma_init_opt_density) /
-  (delta_init_opt_density + kappa_init_opt_density + tau_init_opt_density) +
-  plot_layout(guides = "collect") +
-  plot_annotation(
-    title = "Distributions of core parameters"
-  ) &
-  theme(plot.title = element_text(size = 24, hjust = 0.5))
-
-init_opt_density
-```
-
-```{r}
-# save plot
-ggsave(out_png("init_opt_density"),
-       init_opt_density, width = 12, height = 6)
-```
-
-#### Calculated variables
-
-```{r}
-alpha_beta_init_opt_density <- alt_param_df_wide %>%
-  ggplot(aes(alpha_beta, fill = init_opt, ..scaled..)) +
-  geom_density(alpha = 0.7) +
-  scale_fill_manual(values = cb_pal[c(6,1)]) +
-  scale_x_log10() +
-  #scale_y_log10() +
-  labs(fill = "Values") +
-  ylab("Density") +
-  xlab(TeX(r'($\alpha \beta$ (#/cell/h^2))')) +
-  ggtitle(TeX(r'($\alpha \beta$)')) +
-  theme1
-
-alpha_beta_init_opt_density
-```
-
-```{r}
-beta_plus_gamma_init_opt_density <- alt_param_df_wide %>%
-  ggplot(aes(beta_plus_gamma, fill = init_opt, ..scaled..)) +
-  geom_density(alpha = 0.7) +
-  scale_fill_manual(values = cb_pal[c(6,1)]) +
-  scale_x_log10() +
-  #scale_y_log10() +
-  labs(fill = "Values") +
-  ylab("Density") +
-  xlab(TeX(r'($\beta + \gamma$ (1/h))')) +
-  ggtitle(TeX(r'($\beta + \gamma$)')) +
-  theme1
-
-beta_plus_gamma_init_opt_density
-```
-
-```{r}
-calc_vars_init_opt_density <- 
-  alpha_beta_init_opt_density + beta_plus_gamma_init_opt_density +
-  plot_layout(guides = "collect") +
-  plot_annotation(
-    title = "Distributions of calculated parameters"
-  ) &
-  theme(plot.title = element_text(size = 24, hjust = 0.5))
-
-calc_vars_init_opt_density
-```
-
-```{r}
-# save plot
-ggsave(out_png("calc_vars_init_opt_density"),
-       calc_vars_init_opt_density, width = 8, height = 4)
-```
-
-
-
-
 ### Pulse-chase rate terms over time
 
-#### Find I at t-tau in Pulse-chase sims
+#### Find I at t-tau in pulse-chase sims
 
 ```{r}
-pulsechase_I_t_minus_tau_list <- lapply(1:length(unique(pulsechase_sims$run)), function(x){
+pc_I_t_minus_tau_list <- lapply(1:length(unique(pulsechase_sims$run)), function(x){
   
   # extract rows for the xth run
   temp_df <- pulsechase_sims %>%
@@ -2205,7 +1623,7 @@ pulsechase_I_t_minus_tau_list <- lapply(1:length(unique(pulsechase_sims$run)), f
 })
 
 # combine values into single vector and add to simulation data frame
-pulsechase_sims$I_t_minus_tau <- unlist(pulsechase_I_t_minus_tau_list)
+pulsechase_sims$I_t_minus_tau <- unlist(pc_I_t_minus_tau_list)
 
 # not quite sure why this introduced NAs instead of 0s - fix
 pulsechase_sims <- pulsechase_sims %>%
@@ -2218,17 +1636,18 @@ pulsechase_sims <- pulsechase_sims %>%
 pulsechase_sims <- pulsechase_sims %>%
   mutate(prod_t = case_when(t < -20/60 ~ 0,    # before t=-20, production = 0
                             t < 0 ~ OPT_alpha,    # between t=-20 and t=0, production = alpha
-                            TRUE ~ OPT_alpha * exp(-OPT_kappa * t)), # after, prod = alpha * e^{-kappa*t}
+                            TRUE ~ 0), # after, prod = 0
          secr_t = OPT_beta * I_t_minus_tau,    # secretion = beta*I_{t-tau}
          deg_int_t = OPT_gamma * I_t_minus_tau,    # intracellular degr = gamma * I_(t-tau)  
-         deg_ext_t = OPT_delta * X)    # extracellular degradation = delta * X
+         deg_ext_t = OPT_delta * X / conv_factor_numcell_to_ngml, # extra degr = delta * X
+         dI_dt = prod_t - secr_t - deg_int_t,
+         dX_dt = secr_t - deg_ext_t)    
 ```
 
 
 ##### Adjust production at t = -20/60 to make step function
 
-There are 2 data points at t=-20/60. One should be 0 and one should be prod, in that order. They should be adjacent to each other
-
+There are 2 data points at t=-20/60. One should be 0 and one should be prod, in that order. They should be adjacent to each other.
 
 ```{r}
 # set production at the first t = -0.333 point to 0
@@ -2245,6 +1664,24 @@ for (i in 1:nrow(pulsechase_sims)) {
 }
 ```
 
+##### Adjust production at t = 0 to make step function
+
+There are 2 data points at t=0. One should be prod and one should be 0, in that order. They should be adjacent to each other.
+
+```{r}
+# set production at the first t = -0.333 point to 0
+for (i in 1:nrow(pulsechase_sims)) {
+  if (pulsechase_sims$t[i] == 0) {
+#    print("Aha! Current t = -0.333")
+    if (pulsechase_sims$t[i+1] == 0) {
+#      print("Next t is also -0.333. Manually adjust production rate...")
+      pulsechase_sims$prod_t[i] = pulsechase_sims$OPT_alpha[i]
+    } else{
+#     print("No adjustment needed.") 
+    }
+  }
+}
+```
 
 
 #### Plot production over time
@@ -2254,243 +1691,444 @@ Production = piecewise function
 $$
 t < -20/60: 0 \\
 -20/60 \leq t< 0 : \alpha \\
-t > 0: \alpha e^{-\kappa t}
+t > 0: 0
 $$
 
 ##### Absolute production - linear scale
 
 ```{r}
-pulsechase_prod_v_time_linscale <- pulsechase_sims %>%
+pc_prod_v_time_linscale <- pulsechase_sims %>%
     ggplot(aes(t, prod_t)) +
-    geom_line(aes(group = run), alpha = 0.1, color = cb_pal[3]) +
-    annotate("text", x = -0.75, y = 4e6, label = "Start pulse", angle = 90, size = 6) +
-    annotate("text", x = 0.35, y = 3.5e6, label = "Start chase", angle = 90, size = 6) +
+    annotate("rect", xmin = -20/60, xmax = 0, ymin = -Inf, ymax = Inf, fill = cb_pal[6]) +
+    annotate("segment", x = -0.7, xend = -0.17, y = 3.5e6, yend = 3e6, size = 0.5) +
+    annotate("segment", x = 0.05, xend = 9.95, y = 3.8e6, yend = 3.8e6, 
+             lty = 2, size = 0.5) +
+    annotate("rect", xmin = 3, xmax = 5, ymin = 3.7e6, ymax = 3.9e6, fill = "white", color = "white") +
+    annotate("text", x = -0.65, y = 3.8e6, label = "P", size = 5.5, angle = 0, fontface = "bold") +
+    annotate("text", x = 4, y = 3.8e6, label = "chase", size = 5) +
+    geom_line(aes(group = run), alpha = 0.5, color = param_pal[1]) +
     scale_fill_manual(labels = "X", values = cb_pal[2]) +
     geom_vline(xintercept = 0) +
     geom_vline(xintercept = -20/60) +
-    xlim(c(-1, 10)) +
-  #scale_y_log10() +
+    scale_x_continuous(limits = c(-1, 10), expand = c(0,0)) +
+    #scale_y_log10() +
     #scale_color_viridis_b() +
     xlab("Time (h)") +
-    ylab("Production rate (#/cell/h)") +
-    theme1 +
-    ggtitle("Production rate over time - Pulse-chase case")
+    ylab(TeX(r'($\Phi$ (#/cell/h))')) +
+    ggtitle("Prod") +
+    theme_paper
 
-pulsechase_prod_v_time_linscale
-```
+ggsave(out_png("rates/pc_prod_v_time_linscale"), pc_prod_v_time_linscale, 
+       width = 6, height = 4.5)
 
-```{r}
-ggsave(out_png("pulsechase_prod_v_time_linscale"), pulsechase_prod_v_time_linscale, 
-       width = 8, height = 6)
-```
-
-
-##### Absolute production - log scale
-
-```{r}
-pulsechase_prod_v_time_logscale <- pulsechase_sims %>%
-    ggplot(aes(t, prod_t)) +
-    geom_line(aes(group = run), alpha = 0.1, color = cb_pal[3]) +
-    annotate("text", x = -0.65, y = 1e2, label = "Start pulse", angle = 90, size = 6) +
-    annotate("text", x = 0.25, y = 1e1, label = "Start chase", angle = 90, size = 6) +
-    scale_fill_manual(labels = "X", values = cb_pal[2]) +
-    geom_vline(xintercept = 0) +
-    geom_vline(xintercept = -20/60) +
-    xlim(c(-1, 10)) +
-    scale_y_continuous(trans = "log10", limits = c(5e-1,5e6)) +
-    xlab("Time (h)") +
-    ylab("Production rate (#/cell/h)") +
-    theme1 +
-    ggtitle("Production rate over time - Pulse-chase case")
-
-pulsechase_prod_v_time_logscale
-```
-
-Note the y-axis is truncated at 0.5 molecules/h, an arbitrary cutoff chosen as a biologically insignificant production rate.
-
-```{r}
-# save plot
-ggsave(out_png("pulsechase_prod_v_time_logscale"), pulsechase_prod_v_time_logscale, 
-       width = 8, height = 6)
+pc_prod_v_time_linscale
 ```
 
 
 ##### Fraction of max production
 
 ```{r}
-pulsechase_prod_v_time_frac_max <- pulsechase_sims %>%
+pc_prod_v_time_frac_max <- pulsechase_sims %>%
   mutate(prod_t_frac = prod_t / OPT_alpha) %>%
     ggplot(aes(t, prod_t_frac)) +
-    annotate("text", x = -0.75, y = .85, label = "Start pulse", angle = 90, size = 6) +
-    annotate("text", x = 0.35, y = .75, label = "Start chase", angle = 90, size = 6) +
-    geom_line(aes(group = run), alpha = 0.3, color = cb_pal[3]) +
+        annotate("rect", xmin = -20/60, xmax = 0, ymin = -Inf, ymax = Inf, fill = cb_pal[6]) +
+    annotate("segment", x = -0.7, xend = -0.17, y = 0.7, yend = 0.5, size = 0.5) +
+    annotate("segment", x = 0.05, xend = 9.95, y = 1.1, yend = 1.1, 
+             lty = 2, size = 0.5) +
+    annotate("rect", xmin = 3, xmax = 5, ymin = 1.05, ymax = 1.15, fill = "white", color = "white") +
+    annotate("text", x = -0.75, y = 0.75, label = "P", size = 5.5, angle = 0, fontface = "bold") +
+    annotate("text", x = 4, y = 1.1, label = "chase", size = 5) +
+    geom_line(aes(group = run), linewidth = 1.5, color = param_pal[1]) +
     scale_fill_manual(labels = "X", values = cb_pal[2]) +
     geom_vline(xintercept = 0) +
     geom_vline(xintercept = -20/60) +
-    xlim(c(-1, 10)) +
-  #scale_y_log10() +
-    #scale_color_viridis_b() +
+  scale_x_continuous(limits = c(-1, 10), expand = c(0,0)) +
+    scale_y_continuous(breaks = seq(0, 1, by=0.5)) +
     xlab("Time (h)") +
-    ylab("Production rate (Fraction of maximum)") +
-    theme1 +
-    ggtitle("sFLT1 production rate over time  - pulse-chase case")
+  ylab(TeX(r'($\frac{\Phi}{\Phi_{max}}$)')) +
+  ggtitle("Prod") +
+    theme_paper +
+  theme(axis.title.y = element_text(angle = 0))
 
-pulsechase_prod_v_time_frac_max
+# save plot
+ggsave(out_png("rates/pc_prod_v_time_frac_max"), pc_prod_v_time_frac_max, 
+       width = 6, height = 4.5)
+
+pc_prod_v_time_frac_max
 ```
 
 ```{r}
-# save plot
-ggsave(out_png("pulsechase_prod_v_time_frac_max"), pulsechase_prod_v_time_frac_max, 
-       width = 8, height = 6)
+pc_prod_v_time_frac_max +
+    ylab(TeX(r'($\frac{\Phi}{\Phi_{max}}$)')) +
+  theme(axis.title.y = element_text(angle = 0))
 ```
-
 
 
 #### Plot secretion over time
 
+##### Absolute secretion - linear scale
+
 ```{r}
-pulsechase_secr_v_time_linscale <- pulsechase_sims %>%
+pc_secr_v_time_linscale <- pulsechase_sims %>%
     ggplot(aes(t, secr_t)) +
-    geom_line(aes(group = run), alpha = 0.3, color = cb_pal[3]) +
-    annotate("text", x = -0.75, y = 2250, label = "Start pulse", angle = 90, size = 6) +
-    annotate("text", x = 0.35, y = 2000, label = "Start chase", angle = 90, size = 6) +
+    annotate("rect", xmin = -20/60, xmax = 0, ymin = -Inf, ymax = Inf, fill = cb_pal[6]) +
+    annotate("segment", x = -0.7, xend = -0.17, y = 2800, yend = 2500, size = 0.5) +
+    annotate("segment", x = 0.05, xend = 9.95, y = 3000, yend = 3000, 
+             lty = 2, size = 0.5) +
+    annotate("rect", xmin = 3, xmax = 5, ymin = 2900, ymax = 3100, fill = "white", color = "white") +
+    annotate("text", x = -0.65, y = 3000, label = "P", size = 5.5, angle = 0, fontface = "bold") +
+    annotate("text", x = 4, y = 3000, label = "chase", size = 5) +
+    geom_line(aes(group = run), alpha = 0.3, color = param_pal[2]) +
     scale_fill_manual(labels = "X", values = cb_pal[2]) +
     geom_vline(xintercept = 0) +
     geom_vline(xintercept = -20/60) +
-    xlim(c(-1, 10)) +
-  #scale_y_log10() +
-    #scale_color_viridis_b() +
+  scale_x_continuous(limits = c(-1, 10), expand = c(0,0)) +
+  ggtitle("Secr") +
     xlab("Time (h)") +
-    ylab("Secretion rate (#/cell/h)") +
-    theme1 +
-    ggtitle("Secretion rate over time - Pulse-chase case")
+    ylab(TeX(r'($\Phi$ (#/cell/h))')) +
+    theme_paper
 
-pulsechase_secr_v_time_linscale
+# save plot
+ggsave(out_png("rates/pc_secr_v_time_linscale"), pc_secr_v_time_linscale, 
+       width = 6, height = 4.5)
+
+pc_secr_v_time_linscale
 ```
+
+##### Fraction of max secretion
+
 
 ```{r}
-# save plot
-ggsave(out_png("pulsechase_secr_v_time_linscale"), pulsechase_secr_v_time_linscale, 
-       width = 8, height = 6)
+pc_secr_v_time_frac <- pulsechase_sims %>%
+  group_by(run) %>%
+  summarise(secr_max = max(secr_t)) %>%
+  right_join(pulsechase_sims) %>%
+  mutate(secr_t_frac = secr_t / secr_max) %>%
+   ggplot(aes(t, secr_t_frac)) +
+    annotate("rect", xmin = -20/60, xmax = 0, ymin = -Inf, ymax = Inf, fill = cb_pal[6]) +
+    annotate("segment", x = -0.7, xend = -0.17, y = 0.7, yend = 0.5, size = 0.5) +
+    annotate("segment", x = 0.05, xend = 9.95, y = 1.1, yend = 1.1, 
+             lty = 2, size = 0.5) +
+    annotate("rect", xmin = 3, xmax = 5, ymin = 1.05, ymax = 1.15, fill = "white", color = "white") +
+    annotate("text", x = -0.75, y = 0.75, label = "P", size = 5.5, angle = 0, fontface = "bold") +
+    annotate("text", x = 4, y = 1.1, label = "chase", size = 5) +
+    geom_line(aes(group = run), alpha = 0.3, color = param_pal[2]) +
+    scale_fill_manual(labels = "X", values = cb_pal[2]) +
+    geom_vline(xintercept = 0) +
+    geom_vline(xintercept = -20/60) +
+  scale_x_continuous(limits = c(-1, 10), expand = c(0,0)) +
+  scale_y_continuous(breaks = seq(0, 1, by=0.5)) +
+  ggtitle("Secr") +
+    xlab("Time (h)") +
+    theme_paper +
+    ylab(TeX(r'($\frac{\Phi}{\Phi_{max}}$)')) +
+    theme(axis.title.y = element_text(angle = 0))
+
+ggsave(out_png("rates/pc_secr_v_time_frac"), pc_secr_v_time_frac, 
+       width = 6, height = 4.5)
+
+pc_secr_v_time_frac
 ```
+
 
 #### Plot intracellular degradation over time
 
 ##### Absolute intracellular degradation, linear scale
 
 ```{r}
-pulsechase_intdeg_v_time_linscale <- pulsechase_sims %>%
+pc_intdeg_v_time_linscale <- pulsechase_sims %>%
     ggplot(aes(t, deg_int_t)) +
-    geom_line(aes(group = run), alpha = 0.3, color = cb_pal[3]) +
-    annotate("text", x = -0.75, y = 4e5, label = "Start pulse", angle = 90, size = 6) +
-    annotate("text", x = 0.35, y = 3e5, label = "Start chase", angle = 90, size = 6) +
+    annotate("rect", xmin = -20/60, xmax = 0, ymin = -Inf, ymax = Inf, fill = cb_pal[6]) +
+    annotate("segment", x = -0.7, xend = -0.17, y = 2.8e5, yend = 2.5e5, size = 0.5) +
+    annotate("segment", x = 0.05, xend = 9.95, y = 3e5, yend = 3e5, 
+             lty = 2, size = 0.5) +
+    annotate("rect", xmin = 3, xmax = 5, ymin = 2.9e5, ymax = 3.1e5, fill = "white", color = "white") +
+    annotate("text", x = -0.65, y = 3e5, label = "P", size = 5.5, angle = 0, fontface = "bold") +
+    annotate("text", x = 4, y = 3e5, label = "chase", size = 5) +
+    geom_line(aes(group = run), alpha = 0.3, color = param_pal[3]) +
     scale_fill_manual(labels = "X", values = cb_pal[2]) +
     geom_vline(xintercept = 0) +
     geom_vline(xintercept = -20/60) +
-    xlim(c(-1, 10)) +
-  #scale_y_log10() +
-    #scale_color_viridis_b() +
+  scale_x_continuous(limits = c(-1, 10), expand = c(0,0)) +
     xlab("Time (h)") +
-    ylab("Intracellular degradation rate (#/cell/h)") +
-    theme1 +
-    ggtitle("Intracellular degradation rate over time - Pulse-chase case")
+    ylab(TeX(r'($\Phi$ (#/cell/h))')) +
+    theme_paper +
+    ggtitle("IDeg")
 
-pulsechase_intdeg_v_time_linscale
-```
-
-```{r}
 # save plot
-ggsave(out_png("pulsechase_intdeg_v_time_linscale"), pulsechase_intdeg_v_time_linscale, 
-       width = 8, height = 6)
+ggsave(out_png("rates/pc_intdeg_v_time_linscale"), pc_intdeg_v_time_linscale, 
+       width = 6, height = 4.5)
+
+pc_intdeg_v_time_linscale
 ```
+
 
 ##### Absolute intracellular degradation, log scale
 
 ```{r}
-pulsechase_intdeg_v_time_logscale <- pulsechase_sims %>%
+pc_intdeg_v_time_logscale <- pulsechase_sims %>%
     ggplot(aes(t, deg_int_t)) +
-    geom_line(aes(group = run), alpha = 0.3, color = cb_pal[3]) +
-    annotate("text", x = -0.75, y = 1e3, label = "Start pulse", angle = 90, size = 6) +
-    annotate("text", x = 0.35, y = 1e2, label = "Start chase", angle = 90, size = 6) +
+      annotate("rect", xmin = -20/60, xmax = 0, ymin = 0.1, ymax = 1.5e6, fill = cb_pal[6]) +
+    annotate("segment", x = -0.7, xend = -0.17, y = 2.8e5, yend = 1e5, size = 0.5) +
+    annotate("segment", x = 0.05, xend = 9.95, y = 5e5, yend = 5e5, 
+             lty = 2, size = 0.5) +
+    annotate("rect", xmin = 3, xmax = 5, ymin = 4.8e5, ymax = 5.2e5, fill = "white", color = "white") +
+    annotate("text", x = -0.65, y = 5e5, label = "P", size = 5.5, angle = 0, fontface = "bold") +
+    annotate("text", x = 4, y = 5e5, label = "chase", size = 5) +
+    geom_line(aes(group = run), alpha = 0.3, color = param_pal[3]) +
     scale_fill_manual(labels = "X", values = cb_pal[2]) +
     geom_vline(xintercept = 0) +
     geom_vline(xintercept = -20/60) +
-    xlim(c(-1, 10)) +
-    scale_y_log10() +
-    #scale_color_viridis_b() +
+    scale_x_continuous(limits = c(-1, 10), expand = c(0,0)) +
+    scale_y_log10(limits = c(0.1,1.5e6), expand = c(0,0)) +
     xlab("Time (h)") +
-    ylab("Intracellular degradation rate (#/cell/h)") +
-    theme1 +
-    ggtitle("Intracellular degradation rate over time - Pulse-chase case")
+    ylab(TeX(r'($\Phi$ (#/cell/h))')) +
+    theme_paper +
+    ggtitle("IDeg")
 
-pulsechase_intdeg_v_time_logscale
-```
-
-```{r}
 # save plot
-ggsave(out_png("pulsechase_intdeg_v_time_logscale"), pulsechase_intdeg_v_time_logscale, 
-       width = 8, height = 6)
+ggsave(out_png("rates/pc_intdeg_v_time_logscale"), pc_intdeg_v_time_logscale, 
+       width = 6, height = 4.5)
+
+pc_intdeg_v_time_logscale
 ```
 
 ##### Fraction of maximum intracellular degradation
 
 ```{r}
-pulsechase_intdeg_v_time_frac_max <- pulsechase_sims %>%
+pc_intdeg_v_time_frac_max <- pulsechase_sims %>%
   group_by(run) %>%
   summarize(max_int_deg = max(deg_int_t)) %>%
   right_join(pulsechase_sims) %>%
   mutate(deg_int_frac = deg_int_t / max_int_deg) %>%
   ggplot(aes(t,deg_int_frac)) +
-    geom_line(aes(group = run), alpha = 0.3, color = cb_pal[3]) +
-    annotate("text", x = -0.75, y = 0.85, label = "Start pulse", angle = 90, size = 6) +
-    annotate("text", x = 0.35, y = 0.75, label = "Start chase", angle = 90, size = 6) +
-    scale_fill_manual(labels = "X", values = cb_pal[2]) +
+      annotate("rect", xmin = -20/60, xmax = 0, ymin = -Inf, ymax = Inf, fill = cb_pal[6]) +
+    annotate("segment", x = -0.7, xend = -0.17, y = 0.7, yend = 0.5, size = 0.5) +
+    annotate("segment", x = 0.05, xend = 9.95, y = 1.1, yend = 1.1, 
+             lty = 2, size = 0.5) +
+    annotate("rect", xmin = 3, xmax = 5, ymin = 1.05, ymax = 1.15, fill = "white", color = "white") +
+    annotate("text", x = -0.75, y = 0.75, label = "P", size = 5.5, angle = 0, fontface = "bold") +
+    annotate("text", x = 4, y = 1.1, label = "chase", size = 5) +
+    geom_line(aes(group = run), alpha = 0.3, color = param_pal[3]) +
     geom_vline(xintercept = 0) +
     geom_vline(xintercept = -20/60) +
-    xlim(c(-1, 10)) +
-    #scale_y_log10() +
-    #scale_color_viridis_b() +
+    scale_x_continuous(limits = c(-1, 10), expand = c(0,0)) +
+    scale_y_continuous(breaks = seq(0, 1, by=0.5)) +
     xlab("Time (h)") +
-    ylab("Intracellular degradation rate (fraction of maximum)") +
-    theme1 +
-    ggtitle("Intracellular degradation rate over time - Pulse-chase case")
+    theme_paper +
+    ggtitle("IDeg") +
+    ylab(TeX(r'($\frac{\Phi}{\Phi_{max}}$)')) +
+  theme(axis.title.y = element_text(angle = 0))
 
-pulsechase_intdeg_v_time_frac_max
-```
-
-```{r}
 # save plot
-ggsave(out_png("pulsechase_intdeg_v_time_frac_max"), pulsechase_intdeg_v_time_frac_max, 
-       width = 8, height = 6)
+ggsave(out_png("rates/pc_intdeg_v_time_frac_max"), pc_intdeg_v_time_frac_max, 
+       width = 6, height = 4.5)
+
+pc_intdeg_v_time_frac_max
 ```
 
 
 #### Plot extracellular degradation over time
 
+##### Absolute extracellular degradation over time
+
 ```{r}
-pulsechase_extdeg_v_time_linscale <- pulsechase_sims %>%
+pc_extdeg_v_time_linscale <- pulsechase_sims %>%
     ggplot(aes(t, deg_ext_t)) +
-    geom_line(aes(group = run), alpha = 0.3, color = cb_pal[3]) +
-    annotate("text", x = -0.75, y = 5e-4, label = "Start pulse", angle = 90, size = 6) +
-    annotate("text", x = 0.35, y = 4e-4, label = "Start chase", angle = 90, size = 6) +
-    scale_fill_manual(labels = "X", values = cb_pal[2]) +
+    annotate("rect", xmin = -20/60, xmax = 0, ymin = -Inf, ymax = Inf, fill = cb_pal[6]) +
     geom_vline(xintercept = 0) +
     geom_vline(xintercept = -20/60) +
-    xlim(c(-1, 10)) +
-  #scale_y_log10() +
-    #scale_color_viridis_b() +
+    annotate("segment", x = -0.7, xend = -0.17, y = 450, yend = 300, size = 0.5) +
+    annotate("segment", x = 0.05, xend = 9.95, y = 800, yend = 800, 
+             lty = 2, size = 0.5) +
+    annotate("rect", xmin = 3, xmax = 5, ymin = 760, ymax = 840, 
+             fill = "white", color = "white") +
+    annotate("text", x = -0.65, y = 500, label = "P", size = 5.5, angle = 0, fontface = "bold") +
+    annotate("text", x = 4, y = 800, label = "chase", size = 5) +
+    geom_line(aes(group = run), alpha = 0.3, color = param_pal[4]) +
+    scale_x_continuous(limits = c(-1, 10), expand = c(0,0)) +
+    #scale_y_continuous(limits = c(0,.0022), expand = c(0.05,0)) +
     xlab("Time (h)") +
-    ylab("Extracellular degradation rate (#/cell/h)") +
-    theme1 +
-    ggtitle("Extracellular degradation rate over time - pulse-chase case")
+    ylab(TeX(r'($\Phi$ (#/cell/h))')) +
+    theme_paper +
+    ggtitle("XDeg")
 
-pulsechase_extdeg_v_time_linscale
+# save plot
+ggsave(out_png("rates/pc_extdeg_v_time_linscale"), pc_extdeg_v_time_linscale, 
+       width = 6, height = 4.5)
+
+pc_extdeg_v_time_linscale
+```
+
+##### Fraction of maximum intracellular degradation
+
+```{r}
+pc_xdeg_v_time_frac <- pulsechase_sims %>%
+  group_by(run) %>%
+  summarise(degx_max = max(deg_ext_t)) %>%
+  right_join(pulsechase_sims) %>%
+  mutate(degx_t_frac = deg_ext_t / degx_max) %>%
+   ggplot(aes(t, degx_t_frac)) +
+    annotate("rect", xmin = -20/60, xmax = 0, ymin = -Inf, ymax = Inf, fill = cb_pal[6]) +
+    annotate("segment", x = -0.7, xend = -0.17, y = 0.7, yend = 0.5, size = 0.5) +
+    annotate("segment", x = 0.05, xend = 9.95, y = 1.1, yend = 1.1, 
+             lty = 2, size = 0.5) +
+    annotate("rect", xmin = 3, xmax = 5, ymin = 1.05, ymax = 1.15, fill = "white", color = "white") +
+    annotate("text", x = -0.75, y = 0.75, label = "P", size = 5.5, angle = 0, fontface = "bold") +
+    annotate("text", x = 4, y = 1.1, label = "chase", size = 5) +
+    geom_line(aes(group = run), alpha = 0.3, color = param_pal[4]) +
+    geom_vline(xintercept = 0) +
+    geom_vline(xintercept = -20/60) +
+  scale_x_continuous(limits = c(-1, 10), expand = c(0,0)) +
+  scale_y_continuous(breaks = seq(0, 1, by=0.5)) +
+  ggtitle("XDeg") +
+    xlab("Time (h)") +
+    ylab(TeX(r'($\frac{\Phi}{\Phi_{max}}$)')) +
+    theme_paper 
+
+ggsave(out_png("rates/pc_xdeg_v_time_frac"), pc_xdeg_v_time_frac, 
+       width = 6, height = 4.5)
+
+pc_xdeg_v_time_frac
+```
+
+#### Combined pulse-chase flux plots
+
+##### Absolute flux
+
+```{r}
+p1 <- pc_prod_v_time_linscale +
+  ggtitle(TeX(r'($\Phi(Prod)$)'))
+
+p2 <- pc_secr_v_time_linscale +
+  ggtitle(TeX(r'($\Phi(Secr)$)'))
+
+p3 <- pc_intdeg_v_time_linscale +
+  ggtitle(TeX(r'($\Phi(IDeg)$)'))
+
+p4 <- pc_extdeg_v_time_linscale +
+  ggtitle(TeX(r'($\Phi(XDeg)$)'))
+
+pc_flux_tcs <- p1 + p2 + p3 + p4 +
+  plot_layout(ncol = 4)
+
+ggsave(out_png("rates/pc_flux_tcs"), pc_flux_tcs, 
+       width = 22, height = 4.5)
+
+pc_flux_tcs
+```
+
+##### Relative flux
+
+```{r}
+p1 <- pc_prod_v_time_frac_max +
+  ggtitle(TeX(r'($\Phi(Prod)$)'))
+
+p2 <- pc_secr_v_time_frac +
+  ggtitle(TeX(r'($\Phi(Secr)$)'))
+
+p3 <- pc_intdeg_v_time_frac_max +
+  ggtitle(TeX(r'($\Phi(IDeg)$)'))
+
+p4 <- pc_xdeg_v_time_frac +
+  ggtitle(TeX(r'($\Phi(XDeg)$)'))
+
+pc_flux_frac_tcs <- p1 + p2 + p3 + p4 +
+  plot_layout(ncol = 4)
+
+ggsave(out_png("rates/pc_flux_frac_tcs"), pc_flux_frac_tcs, 
+       width = 22, height = 4.5)
+
+pc_flux_frac_tcs
+```
+
+
+#### Pulse-chase dI/dt
+
+dI/dt = prod - secr - ideg
+
+```{r}
+# make alternative version of pulse-chase simulation data frame
+pc_sims_copy <- pulsechase_sims
+
+# extract chase data (all correct)
+temp_pc_sims <- pc_sims_copy %>%
+  filter(t > 0)
+
+# manually set pulse dI/dt to matching production and rejoin with chase data
+pc_sims_copy <- pc_sims_copy %>%
+  filter(t <= 0) %>%
+  mutate(dI_dt = prod_t) %>%
+  rbind(temp_pc_sims)
+
+pc_sims_copy
 ```
 
 ```{r}
+# plot dI/dt
+pc_didt_v_time_linscale <- pc_sims_copy %>%
+    ggplot(aes(t, dI_dt)) +
+    annotate("rect", xmin = -20/60, xmax = 0, ymin = -Inf, ymax = Inf, fill = cb_pal[6]) +
+    annotate("segment", x = -0.7, xend = -0.17, y = 3.5e6, yend = 3e6, size = 0.5) +
+    annotate("segment", x = 0.05, xend = 9.95, y = 3.8e6, yend = 3.8e6, 
+             lty = 2, size = 0.5) +
+    annotate("rect", xmin = 3, xmax = 5, ymin = 3.7e6, ymax = 3.9e6, fill = "white", color = "white") +
+    annotate("text", x = -0.65, y = 3.8e6, label = "P", size = 5.5, angle = 0, fontface = "bold") +
+    annotate("text", x = 4, y = 3.8e6, label = "chase", size = 5) +
+    geom_vline(xintercept = 0) +
+    geom_vline(xintercept = -20/60) +
+    geom_line(aes(group = run), alpha = 0.1, color = cb_pal[1]) +
+  scale_x_continuous(breaks = seq(0, 72, by = 24), expand = c(0,0)) +
+    xlab("Time (h)") +
+    ylab(TeX(r'($\frac{dI}{dt}$ (#/cell/h))')) +
+    theme_paper
+
 # save plot
-ggsave(out_png("pulsechase_extdeg_v_time_linscale"), pulsechase_extdeg_v_time_linscale, 
-       width = 8, height = 6)
+ggsave(out_png("rates/pc_didt_v_time_linscale"), pc_didt_v_time_linscale, 
+       width = 6, height = 4.5)
+
+pc_didt_v_time_linscale
+```
+
+#### Constitutive dX/dt
+
+dX/dt = secr - xdeg
+
+```{r}
+pc_dxdt_v_time_linscale <- pc_sims_copy %>%
+    ggplot(aes(t, dX_dt)) +
+    annotate("rect", xmin = -20/60, xmax = 0, ymin = -Inf, ymax = Inf, fill = cb_pal[6]) +
+    annotate("segment", x = -0.7, xend = -0.17, y = 2000, yend = 1600, size = 0.5) +
+    annotate("segment", x = 0.05, xend = 9.95, y = 2700, yend = 2700, 
+             lty = 2, size = 0.5) +
+    annotate("rect", xmin = 3, xmax = 5, ymin = 2500, ymax = 2900, fill = "white", color = "white") +
+    annotate("text", x = -0.65, y = 2200, label = "P", size = 5.5, angle = 0, fontface = "bold") +
+    annotate("text", x = 4, y = 2700, label = "chase", size = 5) +
+    geom_vline(xintercept = 0) +
+    geom_vline(xintercept = -20/60) +
+    geom_line(aes(group = run), alpha = 0.1, color = cb_pal[1]) +
+  scale_x_continuous(breaks = seq(0, 72, by = 24), expand = c(0,0)) +
+    xlab("Time (h)") +
+    ylab(TeX(r'($\frac{dX}{dt}$ (#/cell/h))')) +
+    theme_paper
+
+# save plot
+ggsave(out_png("rates/pc_dxdt_v_time_linscale"), pc_dxdt_v_time_linscale, 
+       width = 6, height = 4.5)
+
+pc_dxdt_v_time_linscale
+```
+
+#### dX/dt, dI/dt combo plot
+
+```{r}
+pc_dxdt_didt_v_time <- pc_dxdt_v_time_linscale / pc_didt_v_time_linscale
+
+# save plot
+ggsave(out_png("rates/pc_dxdt_didt_v_time"), pc_dxdt_didt_v_time, 
+       width = 6, height = 8)
+
+pc_dxdt_didt_v_time
 ```
 
 ### Constitutive rate terms over time
@@ -2498,7 +2136,7 @@ ggsave(out_png("pulsechase_extdeg_v_time_linscale"), pulsechase_extdeg_v_time_li
 #### Find I at t-tau in Constitutive sims
 
 ```{r}
-constitutive_I_t_minus_tau_list <- lapply(1:length(unique(constitutive_sims$run)), function(x){
+const_I_t_minus_tau_list <- lapply(1:length(unique(constitutive_sims$run)), function(x){
   
   # extract rows for the xth run
   temp_df <- constitutive_sims %>%
@@ -2526,7 +2164,7 @@ constitutive_I_t_minus_tau_list <- lapply(1:length(unique(constitutive_sims$run)
 })
 
 # combine values into single vector and add to simulation data frame
-constitutive_sims$I_t_minus_tau <- unlist(constitutive_I_t_minus_tau_list)
+constitutive_sims$I_t_minus_tau <- unlist(const_I_t_minus_tau_list)
 
 # not quite sure why this introduced NAs instead of 0s - fix
 constitutive_sims <- constitutive_sims %>%
@@ -2541,7 +2179,9 @@ constitutive_sims <- constitutive_sims %>%
   mutate(prod_t =  OPT_alpha,    # production = alpha
          secr_t = OPT_beta * I_t_minus_tau,    # secretion = beta*I_{t-tau}
          deg_int_t = OPT_gamma * I_t_minus_tau,    # intracellular degr = gamma * I_(t-tau)  
-         deg_ext_t = OPT_delta * X)    # extracellular degradation = delta * X
+         deg_ext_t = OPT_delta * X / conv_factor_numcell_to_ngml, # extra degr = delta * X / conv_factor
+         dI_dt = prod_t - secr_t - deg_int_t,
+         dX_dt = secr_t - deg_ext_t)    
 ```
 
 
@@ -2550,247 +2190,366 @@ constitutive_sims <- constitutive_sims %>%
 ##### Absolute production - linear scale
 
 ```{r}
-constitutive_prod_v_time_linscale <- constitutive_sims %>%
+const_prod_v_time_linscale <- constitutive_sims %>%
     ggplot(aes(t, prod_t)) +
     geom_line(aes(group = run), alpha = 0.2, color = cb_pal[3]) +
     scale_fill_manual(labels = "X", values = cb_pal[2]) +
 #scale_y_log10() +
     xlab("Time (h)") +
-    ylab("Production rate (#/cell/h)") +
-    theme1 +
-    ggtitle("Production rate over time - constitutive secretion")
+    ylab(TeX(r'($\Phi$ (#/cell/h))')) +
+  scale_x_continuous(expand = c(0,0)) +
+    theme_paper +
+  ggtitle("Prod")
+  
 
-constitutive_prod_v_time_linscale
+  ggsave(out_png("rates/const_prod_v_time_linscale"), const_prod_v_time_linscale, 
+       width = 6, height = 4.5)
+
+const_prod_v_time_linscale
 ```
 
-```{r}
-ggsave(out_png("constitutive_prod_v_time_linscale"), constitutive_prod_v_time_linscale, 
-       width = 8, height = 6)
-```
 
 ##### Absolute production - log scale
 
 ```{r}
-constitutive_prod_v_time_logscale <- constitutive_sims %>%
+const_prod_v_time_logscale <- constitutive_sims %>%
     ggplot(aes(t, prod_t)) +
     geom_line(aes(group = run), alpha = 0.2, color = cb_pal[3]) +
     scale_fill_manual(labels = "X", values = cb_pal[2]) +
+    scale_x_continuous(breaks = seq(0, 72, by = 24), expand = c(0,0)) +
   scale_y_log10() +
     xlab("Time (h)") +
-    ylab("Production rate (#/cell/h)") +
-    theme1 +
-    ggtitle("Production rate over time - constitutive secretion")
+    ylab(TeX(r'($\Phi$ (#/cell/h))')) +
+    theme_paper +
+  ggtitle("Prod")
 
-constitutive_prod_v_time_logscale
-```
+ggsave(out_png("rates/const_prod_v_time_logscale"), const_prod_v_time_logscale, 
+       width = 6, height = 4.5)
 
-
-```{r}
-ggsave(out_png("constitutive_prod_v_time_logscale"), constitutive_prod_v_time_logscale, 
-       width = 8, height = 6)
+const_prod_v_time_logscale
 ```
 
 
 ##### Production rate distribution
 
 ```{r}
-constitutive_prod_dist <- constitutive_sims %>% 
+const_prod_dist <- constitutive_sims %>% 
   filter(t == max(t)) %>%
   ggplot(aes(prod_t, ..scaled..)) +
-  geom_density(fill = cb_pal[1], alpha = 0.5) +
-  scale_x_log10() +
-  xlab("Production rate (#/cell/h)") +
+  geom_density(fill = param_pal[1]) +
+  scale_x_log10(expand = c(0,0)) +
+  xlab(TeX(r'($\Phi$ (#/cell/h))')) +
   ylab("Scaled density") +
-  ggtitle("Constant production rate - constitutive secretion") +
-  theme1
+  ggtitle("Prod") +
+  theme_paper
 
-constitutive_prod_dist
+ggsave(out_png("rates/const_prod_dist"), const_prod_dist, 
+       width = 6, height = 4.5)
+
+const_prod_dist
 ```
 
 Note that the production rate has the same distribution as alpha because in this system the production rate equals alpha.
-
-```{r}
-ggsave(out_png("constitutive_prod_dist"), constitutive_prod_dist, 
-       width = 8, height = 6)
-```
 
 #### Plot secretion over time
 
 ##### Absolute secretion rate over time
 
 ```{r}
-constitutive_secr_v_time_linscale <- constitutive_sims %>%
+const_secr_v_time_linscale <- constitutive_sims %>%
     ggplot(aes(t, secr_t)) +
-    geom_line(aes(group = run), alpha = 0.3, color = cb_pal[3]) +
+    geom_line(aes(group = run), alpha = 0.5, color = param_pal[2]) +
   #scale_y_log10() +
     #scale_color_viridis_b() +
     xlab("Time (h)") +
-    ylab("Secretion rate (#/cell/h)") +
-    theme1 +
-    ggtitle("Secretion rate over time - constitutive secretion")
+    ylab(TeX(r'($\Phi$ (#/cell/h))')) +
+    scale_x_continuous(breaks = seq(0, 72, by = 24), expand = c(0,0)) +
+  theme_paper +
+  ggtitle("Secr")
 
-constitutive_secr_v_time_linscale
-```
+ggsave(out_png("rates/const_secr_v_time_linscale"), const_secr_v_time_linscale, 
+       width = 6, height = 4.5)
 
-```{r}
-ggsave(out_png("constitutive_secr_v_time_linscale"), constitutive_secr_v_time_linscale, 
-       width = 8, height = 6)
+const_secr_v_time_linscale
 ```
 
 ##### Secretion rate distribution
 
 ```{r}
-constitutive_secr_dist <- constitutive_sims %>% 
+const_secr_dist <- constitutive_sims %>% 
   filter(t == max(t)) %>%
   ggplot(aes(secr_t, ..scaled..)) +
-  geom_density(fill = cb_pal[1], alpha = 0.5) +
-  xlab("Secretion rate (#/cell/h)") +
+  geom_density(fill = param_pal[2]) +
+  xlab(TeX(r'($\Phi$ (#/cell/h))')) +
   ylab("Scaled density") +
-  ggtitle("Constant secretion rate - constitutive secretion") +
-  theme1
+  theme_paper
 
-constitutive_secr_dist
+ggsave(out_png("rates/const_secr_dist"), const_secr_dist, 
+       width = 6, height = 4.5)
+
+const_secr_dist
 ```
 
-The model predicts a constitutive sFLT1 secretion rate of approximately 26,600 #/cell/h.
-
-```{r}
-ggsave(out_png("constitutive_secr_dist"), constitutive_secr_dist, 
-       width = 8, height = 6)
-```
+The model predicts a constitutive sFLT1 secretion rate of approximately 42,000 #/cell/h.
 
 #### Plot intracellular degradation over time
 
 ##### Absolute intracellular degradation, linear scale
 
 ```{r}
-constitutive_intdeg_v_time_linscale <- constitutive_sims %>%
+const_intdeg_v_time_linscale <- constitutive_sims %>%
     ggplot(aes(t, deg_int_t)) +
-    geom_line(aes(group = run), alpha = 0.3, color = cb_pal[3]) +
+    geom_line(aes(group = run), alpha = 0.3, color = param_pal[3]) +
   #scale_y_log10() +
     #scale_color_viridis_b() +
+  scale_x_continuous(expand = c(0,0)) +
     xlab("Time (h)") +
-    ylab("Intracellular degradation rate (#/cell/h)") +
-    theme1 +
-    ggtitle("Intracellular degradation rate over time - Constitutive secretion")
+    ylab(TeX(r'($\Phi$ (#/cell/h))')) +
+    theme_paper +
+    ggtitle("IDeg")
 
-constitutive_intdeg_v_time_linscale
-```
-
-```{r}
 # save plot
-ggsave(out_png("constitutive_intdeg_v_time_linscale"), constitutive_intdeg_v_time_linscale, 
-       width = 8, height = 6)
+ggsave(out_png("rates/const_intdeg_v_time_linscale"), const_intdeg_v_time_linscale, 
+       width = 6, height = 4.5)
+
+const_intdeg_v_time_linscale
 ```
+
 
 ##### Absolute intracellular degradation, log scale
 
 ```{r}
-constitutive_intdeg_v_time_logscale <- constitutive_sims %>%
+const_intdeg_v_time_logscale <- constitutive_sims %>%
     ggplot(aes(t, deg_int_t)) +
-    geom_line(aes(group = run), alpha = 0.3, color = cb_pal[3]) +
+    geom_line(aes(group = run), alpha = 0.3, color = param_pal[3]) +
+    scale_x_continuous(breaks = seq(0, 72, by = 24), expand = c(0,0)) +
     scale_y_log10() +
     #scale_color_viridis_b() +
     xlab("Time (h)") +
-    ylab("Intracellular degradation rate (#/cell/h)") +
-    theme1 +
-    ggtitle("Intracellular degradation rate over time - Constitutive secretion")
+    ylab(TeX(r'($\Phi$ (#/cell/h))')) +
+    theme_paper +
+    ggtitle("IDeg")
 
-constitutive_intdeg_v_time_logscale
-```
 
-```{r}
 # save plot
-ggsave(out_png("constitutive_intdeg_v_time_logscale"), constitutive_intdeg_v_time_logscale, 
-       width = 8, height = 6)
+ggsave(out_png("rates/const_intdeg_v_time_logscale"), const_intdeg_v_time_logscale, 
+       width = 6, height = 4.5)
+
+const_intdeg_v_time_logscale
 ```
 
 ##### Intracellular degradation rate distribution
 
 ```{r}
-constitutive_intdeg_dist <- constitutive_sims %>% 
+const_intdeg_dist <- constitutive_sims %>% 
   filter(t == max(t)) %>%
   ggplot(aes(deg_int_t, ..scaled..)) +
-  geom_density(fill = cb_pal[1], alpha = 0.5) +
-  scale_x_log10() +
-  xlab("Intracellular degradation rate (#/cell/h)") +
+  geom_density(fill = param_pal[3]) +
+  scale_x_log10(expand = c(0,0)) +
+  xlab(TeX(r'($\Phi$ (#/cell/h))')) +
   ylab("Scaled density") +
-  ggtitle("Constant intracellular degradation rate - constitutive secretion") +
-  theme1
+  ggtitle("IDeg") +
+  theme_paper
 
-constitutive_intdeg_dist
+ggsave(out_png("rates/const_intdeg_dist"), const_intdeg_dist, 
+       width = 6, height = 4.5)
+
+const_intdeg_dist
 ```
 
 The model predicts that during constitutive secretion, intracellular degradation is constant for any given parameter set but can vary over orders of magnitude across parameter sets.
 
-```{r}
-ggsave(out_png("constitutive_intdeg_dist"), constitutive_intdeg_dist, 
-       width = 8, height = 6)
-```
-
-
-
 #### Plot extracellular degradation over time
 
 ```{r}
-constitutive_extdeg_v_time_linscale <- constitutive_sims %>%
+const_extdeg_v_time_linscale <- constitutive_sims %>%
     ggplot(aes(t, deg_ext_t)) +
-    geom_line(aes(group = run), alpha = 0.3, color = cb_pal[3]) +
-  #scale_y_log10() +
+    geom_line(aes(group = run), alpha = 0.3, color = param_pal[4]) +
+  scale_x_continuous(breaks = seq(0, 72, by = 24), expand = c(0,0)) +
     xlab("Time (h)") +
-    ylab("Extracellular degradation rate (#/cell/h)") +
-    theme1 +
-    ggtitle("Extracellular degradation rate over time - constitutive secretion")
+    ylab(TeX(r'($\Phi$ (#/cell/h))')) +
+    theme_paper
 
-constitutive_extdeg_v_time_linscale
-```
-
-```{r}
 # save plot
-ggsave(out_png("constitutive_extdeg_v_time_linscale"), constitutive_extdeg_v_time_linscale, 
-       width = 8, height = 6)
+ggsave(out_png("rates/const_extdeg_v_time_linscale"), const_extdeg_v_time_linscale, 
+       width = 6, height = 4.5)
+
+const_extdeg_v_time_linscale
 ```
 
-## CUTOFF - functional ^, in progress v
-
-### Add I_ss to param_df_wide
+#### Combined constitutive flux time courses
 
 ```{r}
-param_df_wide <- constitutive_sims %>%
+p1 <- const_prod_v_time_logscale +
+  ggtitle(TeX(r'($\Phi(Prod)$)'))
+
+p2 <- const_secr_v_time_linscale +
+  ggtitle(TeX(r'($\Phi(Secr)$)'))
+
+p3 <- const_intdeg_v_time_logscale +
+  ggtitle(TeX(r'($\Phi(IDeg)$)'))
+
+p4 <- const_extdeg_v_time_linscale +
+  ggtitle(TeX(r'($\Phi(XDeg)$)'))
+
+const_flux_tcs <- p1 + p2 + p3 + p4 +
+  plot_layout(ncol = 4)
+
+# save plot
+ggsave(out_png("rates/const_flux_tcs"), const_flux_tcs, 
+       width = 24, height = 4.5)
+
+const_flux_tcs
+```
+
+
+#### Constitutive steady state flux distributions
+
+```{r}
+const_flux_violin <- constitutive_sims %>%
+  filter(t==0) %>%
+  select(prod_t, secr_t, deg_int_t) %>%
+  pivot_longer(everything(), names_to = "Process", values_to = "Flux") %>%
+  mutate(Process = case_when(
+    Process == "prod_t" ~ "Prod",
+    Process == "secr_t" ~ "Secr",
+    Process == "deg_int_t" ~ "IDeg"
+  )) %>%
+  mutate(Process = factor(Process, levels = c("IDeg", "Secr", "Prod"))) %>%
+  ggplot(aes(Process, Flux)) +
+  geom_violin(aes(fill = Process), scale = "width", trim = FALSE) +
+  geom_boxplot(width = 0.3, fill = "white") +
+  scale_fill_manual(values = param_pal[3:1]) +
+  scale_x_discrete(labels = c(
+    TeX(r'($\Phi(IDeg)$)'), TeX(r'($\Phi(Secr)$)'), TeX(r'($\Phi(Prod)$)')
+  )) +
+#    scale_fill_manual(values = param_pal, breaks = color_breaks, label = color_labels) +
+  scale_y_log10() +
+  xlab("Process") +
+  ylab(TeX(r'($\Phi$ (#/cell/h))')) +
+  coord_flip() +
+  theme_paper +
+  theme(legend.position = "none") 
+
+# save plot
+ggsave(out_png("rates/const_flux_violin"), const_flux_violin, 
+       width = 6, height = 4.5)
+
+const_flux_violin
+```
+
+#### Constitutive dI/dt
+
+dI/dt = prod - secr - ideg
+
+```{r}
+const_didt_v_time_linscale <- constitutive_sims %>%
+    ggplot(aes(t, dI_dt)) +
+    geom_line(aes(group = run), alpha = 0.1, color = cb_pal[1]) +
+  scale_x_continuous(breaks = seq(0, 72, by = 24), expand = c(0,0)) +
+    xlab("Time (h)") +
+    ylab(TeX(r'($\frac{dI}{dt}$ (#/cell/h))')) +
+    theme_paper
+
+# save plot
+ggsave(out_png("rates/const_didt_v_time_linscale"), const_didt_v_time_linscale, 
+       width = 6, height = 4.5)
+
+const_didt_v_time_linscale
+```
+
+#### Constitutive dX/dt
+
+dX/dt = secr - xdeg
+
+```{r}
+const_dxdt_v_time_linscale <- constitutive_sims %>%
+    ggplot(aes(t, dX_dt)) +
+    geom_line(aes(group = run), alpha = 0.1, color = cb_pal[1]) +
+  scale_x_continuous(breaks = seq(0, 72, by = 24), expand = c(0,0)) +
+    xlab("Time (h)") +
+    ylab(TeX(r'($\frac{dX}{dt}$ (#/cell/h))')) +
+    theme_paper
+
+# save plot
+ggsave(out_png("rates/const_dxdt_v_time_linscale"), const_dxdt_v_time_linscale, 
+       width = 6, height = 4.5)
+
+const_dxdt_v_time_linscale
+```
+
+#### dX/dt, dI/dt combo plot
+
+```{r}
+const_dxdt_didt_v_time <- const_dxdt_v_time_linscale / const_didt_v_time_linscale
+
+# save plot
+ggsave(out_png("rates/const_dxdt_didt_v_time"), const_dxdt_didt_v_time, 
+       width = 6, height = 8)
+
+const_dxdt_didt_v_time
+```
+
+
+## Intracellular steady state relationships
+
+### Add I_ss to opt_df_filtered
+
+```{r}
+opt_df_filtered <- constitutive_sims %>%
   filter(t == max(t)) %>%
   select(run, I_ss = I) %>%
-  right_join(param_df_wide, by = "run")
+  right_join(opt_df_filtered, by = "run")
 ```
 
 ### Plot I_ss distribution
 
 ```{r}
-I_ss_dist <- param_df_wide %>%
+I_ss_dist <- opt_df_filtered %>%
   ggplot(aes(I_ss, ..scaled..)) +
   geom_density(fill = cb_pal[1], alpha = .5) +
-  scale_x_log10() +
-  ggtitle("Steady state intracellular sFLT1 values") +
-  xlab(TeX(r'($\bar{S_i}$)')) +
+  scale_x_log10(expand = c(0,0)) +
+  xlab(TeX(r'($I_{SS}$ (#/cell))')) +
   ylab("Scaled density") +
-  theme1
+  theme_poster +
+  theme(axis.title.y = element_text(angle = 90, margin = margin(r = 10, l = 5)),
+        axis.title.x = element_text(margin = margin(t = 5)),
+        plot.margin = margin(t = 10, b = 5, r = 15))
+
+# save plot
+ggsave(out_png("I_ss/I_ss_dist"), I_ss_dist, width = 6, height = 4)
 
 I_ss_dist
 ```
 
 ```{r}
+I_ss_dist_annot <- opt_df_filtered %>%
+  ggplot(aes(I_ss, ..scaled..)) +
+  geom_vline(xintercept = ab_median / bg_median^2, color = cb_pal[2], lty = 2, size = 1) +
+  geom_density(fill = cb_pal[1], alpha = .5) +
+  scale_x_log10(expand = c(0,0)) +
+  xlab(TeX(r'($I_{SS}$ (#/cell))')) +
+  ylab("Scaled density") +
+  theme_poster +
+  theme(axis.title.y = element_text(angle = 90, margin = margin(r = 10, l = 5)),
+        axis.title.x = element_text(margin = margin(t = 5)),
+        plot.margin = margin(t = 10, b = 5, r = 15))
+
 # save plot
-ggsave(out_png("I_ss_dist"), I_ss_dist, width = 8, height = 6)
+ggsave(out_png("I_ss/I_ss_dist_annot"), I_ss_dist_annot, width = 6, height = 4)
+
+I_ss_dist_annot
 ```
 
 ```{r}
-param_df_wide %>%
+opt_df_filtered %>%
   pull(I_ss) %>%
   summary(.)
 ```
 
 
 ```{r}
-param_df_wide %>%
+opt_df_filtered %>%
   mutate(alpha_beta = alpha*beta,
          beta_plus_gamma = beta + gamma,
          cx_div_cisq = alpha_beta / (beta_plus_gamma^2)) %>%
@@ -2798,10 +2557,10 @@ param_df_wide %>%
   summary(.)
 ```
 
-In all cases, $\bar{S_i} \geq \frac{c_I}{c_X}$.
+In all cases, $I_{SS} \geq \frac{c_I}{c_X}$.
 
 ```{r}
-param_df_wide %>%
+opt_df_filtered %>%
   mutate(alpha_beta = alpha*beta,
          beta_plus_gamma = beta + gamma,
          cx_div_cisq = alpha_beta / (beta_plus_gamma^2),
@@ -2811,241 +2570,163 @@ param_df_wide %>%
 ```
 
 
-
-### Plot alpha vs I_ss
-
-```{r}
-constitutive_alpha_v_Iss <- param_df_wide %>%
-  ggplot(aes(I_ss, alpha)) +
-  geom_point() +
-  scale_x_log10() +
-  scale_y_log10() +
-  theme1 +
-  ggtitle(TeX(r'($\alpha$ versus $\bar{S_i}$)')) +
-  xlab(TeX(r'($\bar{S_i}$)')) +
-  ylab(TeX(r'($\alpha$)'))
-
-  #ggtitle(TeX(r'("$\alpha$ versus $\bar{I}$)"')))
-
-constitutive_alpha_v_Iss
-```
-
-```{r}
-# save plot
-ggsave(out_png("constitutive_alpha_v_Iss"),
-       constitutive_alpha_v_Iss, width = 8, height = 6)
-```
-
-#### I_ss v alpha
-
-```{r}
-param_df_wide
-```
+### Plot I_ss v alpha
 
 
 ```{r}
-constitutive_Iss_v_alpha <- param_df_wide %>%
+# define trendline values
+temp_trend_df <- opt_df_filtered %>%
+  select(alpha, I_ss) %>%
+  mutate(calc = alpha / bg_median) %>%
+  rbind(list(2.5e4, 2.5e4/bg_median, 2.5e4/bg_median)) %>%
+  rbind(list(6e6, 6e6/bg_median, 6e6/bg_median))
+
+# plot Iss v alpha
+const_Iss_v_alpha <- opt_df_filtered %>%
   ggplot(aes(alpha, I_ss)) +
-  geom_point() +
-  scale_x_log10() +
-  scale_y_log10() +
-  theme1 +
-  #ggtitle(TeX(r'($\bar{S_i}$ versus $\alpha$)')) +
-  ylab(TeX(r'($\bar{S_i}$)')) +
-  xlab(TeX(r'($\alpha$)'))
+  geom_hline(yintercept = ab_median / bg_median^2, color = cb_pal[3], lty = 2, size = 1) +
+  geom_vline(xintercept = ab_median / bg_median, color = cb_pal[3], lty = 2, size = 1) +
+  geom_point(alpha = 0.08, size = 7) +
+  geom_line(data = temp_trend_df, aes(alpha, calc), col = cb_pal[2], size = 1.5) +
+  annotate("text", x = 2e5, y = 1.3e7, label = TeX(r'($I_{SS} = \frac{\alpha}{c_2}$)'), 
+           col = cb_pal[2], family = "serif", size = 10) +
+  annotate("segment", x = 2.1e5, xend = 2.8e5, y = 6e6, 
+           yend = 2.8e5/bg_median, col = cb_pal[2]) +
+  scale_x_log10(expand = c(0,0)) +
+  scale_y_log10(breaks = c(3e5, 3e6, 3e7)) +
+  theme_paper +
+  ylab(TeX(r'($I_{SS}$ (#/cell))')) +
+  xlab(TeX(r'($\alpha$ (#/cell/h))'))
 
-
-constitutive_Iss_v_alpha
-```
-
-```{r}
 # save plot
-ggsave(out_png("constitutive_Iss_v_alpha"),
-       constitutive_Iss_v_alpha, width = 4, height = 3)
+ggsave(out_png("I_ss/const_Iss_v_alpha"),
+       const_Iss_v_alpha, width = 6, height = 4.5)
+
+const_Iss_v_alpha
 ```
 
 
-### Plot beta vs I_ss
-
-
-```{r}
-constitutive_beta_v_Iss <- param_df_wide %>%
-  ggplot(aes(I_ss, beta)) +
-  geom_point() +
-  scale_x_log10() +
-  #scale_y_log10() +
-  theme1 +
-  ggtitle(TeX(r'($\beta$ versus $\bar{S_i}$)')) +
-  xlab(TeX(r'($\bar{S_i}$)')) +
-  ylab(TeX(r'($\beta$)'))
-
-constitutive_beta_v_Iss
-```
+### Plot I_ss v beta
 
 ```{r}
-# save plot
-ggsave(out_png("constitutive_beta_v_Iss"),
-       constitutive_beta_v_Iss, width = 8, height = 6)
-```
+# define trendline values
+temp_trend_df <- opt_df_filtered %>%
+  select(beta, I_ss) %>%
+  mutate(calc = ab_median / (bg_median*beta)) %>%
+  rbind(list(1e-3, ab_median / (bg_median*1e-3), ab_median / (bg_median*1e-3))) %>%
+  rbind(list(0.18, ab_median / (bg_median*0.18), ab_median / (bg_median*0.18)))
 
-#### I_ss v beta
-
-```{r}
-constitutive_Iss_v_beta <- param_df_wide %>%
+# plot Iss v beta
+const_Iss_v_beta <- opt_df_filtered %>%
   ggplot(aes(beta, I_ss)) +
-  geom_point() +
-  #scale_x_log10() +
-  scale_y_log10() +
-  theme1 +
-  #ggtitle(TeX(r'($\bar{S_i}$ versus $\beta$)')) +
-  xlab(TeX(r'($\beta$)')) +
-  ylab(TeX(r'($\bar{S_i}$)'))
+    geom_hline(yintercept = ab_median / bg_median^2, color = cb_pal[3], lty = 2, size = 1) +
+  geom_vline(aes(xintercept = bg_median), color = cb_pal[3], lty = 2, size = 1) +
+  geom_vline(aes(xintercept = 0), color = cb_pal[3], lty = 2, size = 1) +
+  geom_point(alpha = 0.08, size = 7) +
+  annotate("text", x = .08, y = 7e6, label = TeX(r'($I_{SS} = \frac{c_1}{c_2 \beta}$)'), 
+           col = cb_pal[2], family = "serif", size = 10) +
+  annotate("segment", x = .1, xend = .108, y = 3e6, 
+           yend = ab_median / (bg_median*.108), col = cb_pal[2]) +
+  geom_line(data = temp_trend_df, aes(beta, calc), col = cb_pal[2], size = 1.5) +
+  scale_x_continuous(limits = c(-.01, .18), expand = c(0,0)) +
+  scale_y_log10(breaks = c(3e5, 3e6, 3e7), expand = c(0,0)) +
+  theme_paper +
+  #ggtitle(TeX(r'($I_{SS}$ versus $\beta$)')) +
+  xlab(TeX(r'($\beta$ (1/h))')) +
+  ylab(TeX(r'($I_{SS}$ (#/cell))'))
 
-constitutive_Iss_v_beta
-```
-
-```{r}
 # save plot
-ggsave(out_png("constitutive_Iss_v_beta"),
-       constitutive_Iss_v_beta, width = 4, height = 3)
+ggsave(out_png("I_ss/const_Iss_v_beta"),
+       const_Iss_v_beta, width = 6, height = 4.5)
+
+const_Iss_v_beta
 ```
 
-
-### Plot gamma vs I_ss
-
-```{r}
-constitutive_gamma_v_Iss <- param_df_wide %>%
-  ggplot(aes(I_ss, gamma)) +
-  geom_point() +
-  scale_x_log10() +
-  #scale_y_log10() +
-  theme1 +
-  ggtitle(TeX(r'($\gamma$ versus $\bar{S_i}$)')) +
-  xlab(TeX(r'($\bar{S_i}$)')) +
-  ylab(TeX(r'($\gamma$)'))
-
-constitutive_gamma_v_Iss
-```
+### Plot I_ss v gamma
 
 ```{r}
+# define trendline values
+temp_trend_df <- opt_df_filtered %>%
+  select(gamma, I_ss) %>%
+  mutate(calc = (-ab_median)/(bg_median * gamma - bg_median^2)) %>%
+  rbind(list(1e-5, (-ab_median)/(bg_median * 1e-5 - bg_median^2),
+             (-ab_median)/(bg_median * 1e-5 - bg_median^2))) %>%
+  rbind(list(.172, (-ab_median)/(bg_median * .172 - bg_median^2),
+             (-ab_median)/(bg_median * .172 - bg_median^2)))
+
+# plot Iss v gamma
+const_Iss_v_gamma <- opt_df_filtered %>%
+  ggplot(aes(gamma, I_ss)) +
+  annotate("text", x = .07, y = 7e6, 
+  label = TeX(r'($I_{SS} = -\frac{c_1}{c_2 \gamma - c_2^2}$)'), 
+           col = cb_pal[2], family = "serif", size = 10) +
+  geom_hline(yintercept = ab_median / bg_median^2, color = cb_pal[3], lty = 2, size = 1) +
+  geom_vline(aes(xintercept = bg_median), color = cb_pal[3], lty = 2, size = 1) +
+  geom_vline(aes(xintercept = 0), color = cb_pal[3], size = 1, lty = 2) +
+  geom_point(alpha = 0.08, size = 7) +
+  geom_line(data = temp_trend_df, aes(gamma, calc), col = cb_pal[2], size = 1.5) +
+  annotate("segment", x = .05, xend = .065, y = 2.9e6, 
+           yend = (-ab_median)/(bg_median * .065 - bg_median^2), col = cb_pal[2]) +
+  scale_x_continuous() +
+  scale_y_log10(breaks = c(3e5, 3e6, 3e7), expand = c(0,0)) +
+  theme_paper +
+  #ggtitle(TeX(r'($I_{SS}$ versus $\gamma$)')) +
+  ylab(TeX(r'($I_{SS}$ (#/cell))')) +
+  xlab(TeX(r'($\gamma$ (1/h))')) 
+
 # save plot
-ggsave(out_png("constitutive_gamma_v_Iss"),
-       constitutive_gamma_v_Iss, width = 8, height = 6)
+ggsave(out_png("I_ss/const_Iss_v_gamma"),
+       const_Iss_v_gamma, width = 6, height = 4.5)
+
+const_Iss_v_gamma
 ```
 
-#### I_ss v gamma
+### Plot I_ss v beta + gamma
 
 ```{r}
-constitutive_Iss_v_gamma <- param_df_wide %>%
-  ggplot(aes(I_ss, gamma)) +
-  geom_point() +
-  scale_x_log10() +
-  #scale_y_log10() +
-  theme1 +
-  #ggtitle(TeX(r'($\bar{S_i}$ versus $\gamma$)')) +
-  ylab(TeX(r'($\bar{S_i}$)')) +
-  xlab(TeX(r'($\gamma$)'))
-
-constitutive_Iss_v_gamma
-```
-
-```{r}
-# save plot
-ggsave(out_png("constitutive_Iss_v_gamma"),
-       constitutive_Iss_v_gamma, width = 4, height = 3)
-```
-
-
-### Plot beta+gamma vs I_ss
-
-```{r}
-constitutive_betagamma_v_Iss <- param_df_wide %>%
-  mutate(betagamma = beta + gamma) %>%
-  ggplot(aes(I_ss, betagamma)) +
-  geom_point() +
-  scale_x_log10() +
-  scale_y_continuous(limits = c(.19, .192)) +
-  theme1 +
-  ggtitle(TeX(r'($\beta + \gamma$ versus $\bar{S_i}$)')) +
-  xlab(TeX(r'($\bar{S_i}$)')) +
-  ylab(TeX(r'($\beta + \gamma$)'))
-
-constitutive_betagamma_v_Iss
-```
-
-```{r}
-# save plot
-ggsave(out_png("constitutive_betagamma_v_Iss"),
-       constitutive_betagamma_v_Iss, width = 8, height = 6)
-```
-
-#### I_ss v beta + gamma
-
-```{r}
-constitutive_Iss_v_betagamma <- param_df_wide %>%
+const_Iss_v_betagamma <- opt_df_filtered %>%
   mutate(betagamma = beta + gamma) %>%
   ggplot(aes(betagamma, I_ss)) +
-  geom_point() +
+  geom_point(alpha = 0.1) +
+  scale_x_continuous(expand = c(0,0)) +
   scale_y_log10() +
-  scale_x_continuous(limits = c(.19, .192)) +
-  theme1 +
-  #ggtitle(TeX(r'($\bar{S_i}$ versus $\beta + \gamma$)')) +
-  ylab(TeX(r'($\bar{S_i}$)')) +
-  xlab(TeX(r'($\beta + \gamma$)'))
+  theme_paper +
+  ylab(TeX(r'($I_{SS}$ (#/cell))')) +
+  xlab(TeX(r'($\beta + \gamma$ (1/h))'))
 
-constitutive_Iss_v_betagamma
-```
-
-```{r}
 # save plot
-ggsave(out_png("constitutive_Iss_v_betagamma"),
-       constitutive_Iss_v_betagamma, width = 4, height = 3)
+ggsave(out_png("I_ss/const_Iss_v_betagamma"),
+       const_Iss_v_betagamma, width = 6, height = 4.5)
+
+const_Iss_v_betagamma
 ```
 
-### Plot alpha/beta+gamma vs I_ss
+### Plot I_ss v alpha/(beta+gamma)
+
+Equivalent to above plot: I_obs_v_calc
 
 ```{r}
-constitutive_abg_v_Iss <- param_df_wide %>%
-  mutate(abg = alpha / (beta + gamma)) %>%
-  ggplot(aes(I_ss, abg)) +
-  geom_point() +
-  scale_x_log10() +
-  scale_y_log10() +
-  theme1 +
-  ggtitle(TeX(r'($\frac{\alpha}{\beta + \gamma}$ versus $\bar{S_i}$)')) +
-  xlab(TeX(r'($\bar{S_i}$)')) +
-  ylab(TeX(r'($\frac{\alpha}{\beta + \gamma}$)'))
-
-constitutive_abg_v_Iss
-```
-
-```{r}
-# save plot
-ggsave(out_png("constitutive_abg_v_Iss"),
-       constitutive_abg_v_Iss, width = 8, height = 6)
-```
-
-#### Plot I_ss v alpha/(beta+gamma)
-
-```{r}
-constitutive_Iss_v_abg <- param_df_wide %>%
+const_Iss_v_abg <- opt_df_filtered %>%
   mutate(abg = alpha / (beta + gamma)) %>%
   ggplot(aes(abg, I_ss)) +
-  geom_point() +
-  scale_x_log10() +
-  scale_y_log10() +
-  theme1 +
-  #ggtitle(TeX(r'($\bar{S_i}$ versus $\frac{\alpha}{\beta + \gamma}$)')) +
-  ylab(TeX(r'($\bar{S_i}$)')) +
-  xlab(TeX(r'($\frac{\alpha}{\beta + \gamma}$)'))
+  geom_hline(yintercept = ab_median / (bg_median^2), color = cb_pal[3], lty = 2, size = 1) +
+  geom_vline(xintercept = ab_median / (bg_median^2), color = cb_pal[3], lty = 2, size = 1) +
+  geom_point(alpha = 0.08, size = 7) +
+  geom_abline(slope = 1, intercept = 0, col = cb_pal[2], size = 1.5) +
+  annotate("segment", x = 1.7e6, xend = 2.5e6, y = 6e6, yend = 2.5e6, col = cb_pal[2]) +
+  annotate("text", x = 1e6, y = 1.3e7, col = cb_pal[2], family = "serif", size = 10,
+           label = TeX(r'($I_{SS}=\frac{\alpha}{\beta + \gamma}$)')) +
+  scale_x_log10(breaks = c(3e5, 3e6, 3e7), expand = c(.02,.02)) +
+  scale_y_log10(breaks = c(3e5, 3e6, 3e7)) +
+  theme_paper +
+  ylab(TeX(r'($I_{SS}$ (#/cell))')) +
+  xlab(TeX(r'($\frac{\alpha}{\beta + \gamma}$ (#/cell))'))
 
-constitutive_Iss_v_abg
-```
-
-```{r}
 # save plot
-ggsave(out_png("constitutive_Iss_v_abg"),
-       constitutive_Iss_v_abg, width = 4, height = 3)
+ggsave(out_png("I_ss/const_Iss_v_abg"),
+       const_Iss_v_abg, width = 6, height = 4.5)
+
+const_Iss_v_abg
 ```
 
 ### Plot alpha/I_ss vs beta+gamma
@@ -3055,105 +2736,273 @@ ggsave(out_png("constitutive_Iss_v_abg"),
 (same as beta+gamma)
 
 ```{r}
-param_df_wide %>%
+opt_df_filtered %>%
   mutate(a_I_ratio = alpha / I_ss) %>%
   ggplot(aes(a_I_ratio)) +
   geom_boxplot() +
-  theme1 +
+  theme_paper +
   scale_y_continuous(breaks = NULL) +
-  xlab(TeX(r'($\frac{\alpha}{\bar{S_i}}$)')) +
-  xlim(c(.19, .2)) +
-  ggtitle(TeX(r'(Distribution of $\frac{\alpha}{\bar{S_i}}$)'))
+  xlab(TeX(r'($\frac{\alpha}{I_{SS}}$ (1/h))'))
 ```
 
 #### alpha/I 
 
 ```{r}
-constitutive_betagamma_vs_aI <- param_df_wide %>%
+const_betagamma_vs_aI <- opt_df_filtered %>%
   mutate(a_I_ratio = alpha / I_ss,
          betagamma = beta + gamma) %>%
   ggplot(aes(a_I_ratio, betagamma)) +
-  geom_point(alpha = 0.5) +
-  xlab(TeX(r'($\frac{\alpha}{\bar{S_i}}$)')) +
-  ylab(TeX(r'($\beta + \gamma$)')) +
-  ggtitle(TeX(r'($\beta + \gamma$ versus $\frac{\alpha}{\bar{S_i}}$)')) +
-  theme1
+  geom_point(alpha = .15) +
+  xlab(TeX(r'($\frac{\alpha}{I_{SS}}$ (1/h))')) +
+  ylab(TeX(r'($\beta + \gamma$ (1/h))')) +
+  scale_x_continuous(expand = c(0,0)) +
+  theme_paper
 
-constitutive_betagamma_vs_aI
+const_betagamma_vs_aI
 ```
-
 
 
 ### Plot delta vs I_ss (expect independent bc delta fixed)
 
 ```{r}
-param_df_wide %>%
+opt_df_filtered %>%
   ggplot(aes(I_ss, delta)) +
-  geom_point() +
-  scale_x_log10() +
+  geom_point(alpha = 0.15) +
+  scale_x_log10(expand = c(0,0)) +
   #scale_y_log10() +
-  theme1 +
-  ggtitle(TeX(r'($\delta$ versus $\bar{S_i}$)')) +
-  xlab(TeX(r'($\bar{S_i}$)')) +
-  ylab(TeX(r'($\delta$)'))
+  theme_paper +
+  xlab(TeX(r'($I_{SS}$ (#/cell))')) +
+  ylab(TeX(r'($\delta$ (1/h))'))
 ```
 
-### Plot kappa vs I_ss (expect independent bc kappa fixed)
-
-```{r}
-param_df_wide %>%
-  ggplot(aes(I_ss, kappa)) +
-  geom_point() +
-  scale_x_log10() +
-  #scale_y_log10() +
-  theme1 +
-  ggtitle(TeX(r'($\kappa$ versus $\bar{S_i}$)')) +
-  xlab(TeX(r'($\bar{S_i}$)')) +
-  ylab(TeX(r'($\kappa$)'))
-```
 
 ### Plot tau vs I_ss (expect independent bc tau fixed)
 
 ```{r}
-param_df_wide %>%
+opt_df_filtered %>%
   ggplot(aes(I_ss, tau)) +
-  geom_point() +
-  scale_x_log10() +
+  geom_point(alpha = .15) +
+  scale_x_log10(expand = c(0,0)) +
   #scale_y_log10() +
-  theme1 +
-  ggtitle(TeX(r'($\tau$ versus $\bar{S_i}$)')) +
-  xlab(TeX(r'($\bar{S_i}$)')) +
-  ylab(TeX(r'($\tau$)'))
+  theme_paper +
+  xlab(TeX(r'($I_{SS}$ (#/cell))')) +
+  ylab(TeX(r'($\tau$ (h))'))
+```
+
+
+### Plot I_ss relationships with variable parameters
+
+```{r}
+Iss_patch <- const_Iss_v_abg + const_Iss_v_alpha + const_Iss_v_beta + const_Iss_v_gamma + 
+  plot_layout(nrow = 1) +
+  plot_annotation(tag_levels = 'A')
+
+ggsave(out_png("I_ss/const_Iss_param_corrs"),
+       Iss_patch, width = 24, height = 5)
+
+Iss_patch
+```
+
+
+### Plot I_ss v IDeg
+
+
+```{r}
+# define trendline values
+temp_trend_df <- constitutive_sims %>%
+  filter(t == 0) %>%
+  select(deg_int_t, I_0) %>%
+  mutate(calc = deg_int_t / bg_median + ab_median / bg_median^2) %>%
+  rbind(list(5e1, 5e1 / bg_median + ab_median / bg_median^2, 
+             5e1 / bg_median + ab_median / bg_median^2)) %>%
+  rbind(list(5e6, 5e6 / bg_median + ab_median / bg_median^2, 
+             5e6 / bg_median + ab_median / bg_median^2)) 
+
+# define asymptote values
+temp_asympt_df <- opt_df_filtered %>%
+  select(gamma, I_ss) %>%
+  mutate(deg_int_t = gamma * I_ss,
+    calc = deg_int_t / bg_median) %>%
+  rbind(list(0, 2.5e4/bg_median, 2.5e4, 2.5e4/bg_median)) %>%
+  rbind(list(0, 6e6/bg_median, 6e6, 6e6/bg_median)) #%>%
+#  filter(I_ss > 1e5)
+
+# plot Iss v IDeg
+const_Iss_v_IDeg <- constitutive_sims %>%
+  filter(t == 0) %>%
+  ggplot(aes(deg_int_t, I_0)) +
+  geom_hline(yintercept = ab_median / bg_median^2, color = cb_pal[3], lty = 2, size = 1) +
+  geom_line(data = temp_asympt_df, aes(deg_int_t, calc), 
+            col = cb_pal[3], lty = 2, size = 1) +
+  geom_point(alpha = .08, size = 7) +
+  geom_line(data = temp_trend_df, aes(deg_int_t, calc), col = cb_pal[2], size = 1.5) +
+  annotate("text", x = 2e3, y = 3e6, 
+           label = TeX(r'($I_{SS} = \frac{\Phi$(IDeg)}{c_2} + \frac{c_1}{c_2^2}$)'), 
+           col = cb_pal[2], family = "serif", size = 8) +
+  annotate("segment", x = 8e3, xend = 3e4, y = 1.2e6, 
+           yend = 3e4/bg_median + ab_median / bg_median^2, col = cb_pal[2]) +
+  scale_x_log10(expand = c(0,0)) +
+  scale_y_log10(limits = c(1e5, 5e6 / bg_median + ab_median / bg_median^2),
+                expand = c(0,0)) +
+  xlab(TeX(r'($\Phi$(IDeg) (#/cell/h))')) +
+  ylab(TeX(r'($I_{SS}$ (#/cell))')) +
+  theme_paper 
+
+# save plot
+ggsave(out_png("I_ss/const_Iss_v_IDeg"),
+       const_Iss_v_IDeg, width = 6, height = 4.5)
+
+const_Iss_v_IDeg
 ```
 
 
 
 
 
+### Plot I_ss v prod (same as I_ss v alpha)
 
-## CUTOFF - in progress ^, brainstorming v
+```{r}
+# define trendline values
+temp_trend_df <- opt_df_filtered %>%
+  select(alpha, I_ss) %>%
+  mutate(calc = alpha / bg_median) %>%
+  rbind(list(2.5e4, 2.5e4/bg_median, 2.5e4/bg_median)) %>%
+  rbind(list(6e6, 6e6/bg_median, 6e6/bg_median))
 
-#### Greek translation
+# plot Iss v alpha
+const_Iss_v_prod <- constitutive_sims %>%
+  filter(t == 0) %>%
+  ggplot(aes(prod_t, I_0)) +
+  geom_hline(yintercept = ab_median / bg_median^2, color = cb_pal[3], lty = 2, size = 1) +
+  geom_vline(xintercept = ab_median / bg_median, color = cb_pal[3], lty = 2, size = 1) +
+  geom_point(alpha = 0.08, size = 7) +
+  geom_line(data = temp_trend_df, aes(alpha, calc), col = cb_pal[2], size = 1.5) +
+  annotate("text", x = 2e5, y = 1.3e7, label = TeX(r'($I_{SS} = \frac{\Phi(Prod)}{c_2}$)'), 
+           col = cb_pal[2], family = "serif", size = 10) +
+  annotate("segment", x = 1.9e5, xend = 2.8e5, y = 6e6, 
+           yend = 2.8e5/bg_median, col = cb_pal[2]) +
 
-- Production
-  - constitutive: $\alpha$
-  - pulse-chase: (double check) = $\alpha e^{-\kappa t}$
-- Secretion = $\beta S_i(t - \tau)$
-- Intracellular degradation: $\gamma S_i(t - \tau)$
-- Extracellular degradation: $\delta S_x(t)$
+  scale_x_log10(expand = c(0,0)) +
+  scale_y_log10() +
+  xlab(TeX(r'($\Phi$(Prod) (#/cell/h))')) +
+  ylab(TeX(r'($I_{SS}$ (#/cell))')) +
+  theme_paper 
 
-### Future - switch to greek letters
+# save plot
+ggsave(out_png("I_ss/const_Iss_v_prod"),
+       const_Iss_v_prod, width = 6, height = 4.5)
 
-That's best done from the import/wrangling script.
+const_Iss_v_prod
+```
 
-Will also have to figure out how to label plots etc in latex
+### Plot secr (constitutive) v ab/(b+g) 
+
+```{r}
+const_secr_v_abbg <- constitutive_sims %>%
+  filter(t == 0) %>%
+  mutate(abbg = OPT_alpha * OPT_beta / (OPT_beta + OPT_gamma)) %>%
+    ggplot(aes(abbg, secr_t)) +
+    geom_hline(yintercept = ab_median / bg_median, color = cb_pal[3], lty = 2, size = 1) +
+    geom_vline(xintercept = ab_median / bg_median, color = cb_pal[3], lty = 2, size = 1) +
+    geom_point(alpha = 0.1, size = 7) +
+    geom_abline(slope = 1, intercept = 0, col = cb_pal[2], size = 1.5) +
+  annotate("text", x = 3.8e4, y = 4.5e4,
+           label = TeX(r'($\Phi(Secr) = \frac{\alpha \beta}{\beta + \gamma}$)'), 
+           col = cb_pal[2], family = "serif", size = 10) +
+  annotate("segment", x = 3.6e4, xend = 3.7e4, y = 4.3e4, yend = 3.7e4, col = cb_pal[2]) +
+    xlab(TeX(r'($\frac{\alpha \beta}{\beta + \gamma}$ (#/cell/h))')) +
+    ylab(TeX(r'($\Phi$(Secr) (#/cell/h))')) +
+    #scale_x_continuous(breaks = seq(0, 72, by = 24), expand = c(0,0)) +
+  theme_paper
+
+ggsave(out_png("rates/const_secr_v_abbg"), const_secr_v_abbg, 
+       width = 6, height = 4.5)
+
+const_secr_v_abbg
+```
+
+### Plot IDeg v prod
+
+```{r}
+# define trendline values
+temp_trend_df <- constitutive_sims %>%
+  filter(t == 0) %>%
+  select(prod_t, deg_int_t) %>%
+  mutate(calc = prod_t - ab_median/bg_median) %>%
+  rbind(list(4.203e4, 4.203e4 - ab_median/bg_median,
+             4.203e4 - ab_median/bg_median)) %>%
+  rbind(list(7e6, 7e6 - ab_median/bg_median, 6e6 - ab_median/bg_median))
 
 
+const_ideg_v_prod <- constitutive_sims %>%
+  filter(t == 0) %>%
+  ggplot(aes(prod_t, deg_int_t)) +
+  geom_abline(slope = 1, intercept = 0, col = cb_pal[3], size = 1, lty = 2) +
+  geom_vline(xintercept = ab_median / bg_median, col = cb_pal[3], size = 1, lty = 2) +
+  geom_point(alpha = 0.08, size = 7) +
+    geom_line(data = temp_trend_df, aes(prod_t, calc), col = cb_pal[2], size = 1.5) +
+  annotate("text", x = 6e5, y = 1e3,
+           label = TeX(r'($\Phi(IDeg) = \Phi(Prod) - \frac{c_1}{c_2}$)'), 
+           col = cb_pal[2], family = "serif", size = 8) +
+    annotate("segment", x = 3e5, xend = 4.2035e4, y = 3e2, 
+             yend = 4.2035e4 - ab_median/bg_median, col = cb_pal[2]) +
+  scale_x_log10() +
+  scale_y_log10(expand = c(0,0)) +
+  ylab(TeX(r'($\Phi$(IDeg) (#/cell/h))')) +
+  xlab(TeX(r'($\Phi$(Prod) (#/cell/h))')) +
+  theme_paper
+
+ggsave(out_png("rates/const_ideg_v_prod"), const_ideg_v_prod, 
+       width = 6, height = 4.5)
+
+const_ideg_v_prod
+```
+
+```{r}
+constitutive_sims %>%
+  filter(t == 0) %>%
+  ggplot(aes(prod_t, deg_int_t)) +
+  geom_abline(slope = 1, intercept = 0, col = cb_pal[3], size = 1, lty = 2) +
+  geom_vline(xintercept = ab_median / bg_median, col = cb_pal[3], size = 1, lty = 2) +
+  geom_point(alpha = 0.08, size = 7) +
+    geom_line(data = temp_trend_df, aes(prod_t, calc), col = cb_pal[2], size = 1.5) +
+#    geom_abline(slope = 1, intercept = 0, col = cb_pal[3], size = 1, lty = 2) +
+  scale_x_log10() +
+  scale_y_log10() +
+  ylab(TeX(r'($\Phi$(IDeg) (#/cell/h))')) +
+  xlab(TeX(r'($\Phi$(Prod) (#/cell/h))')) +
+  theme_paper
+```
 
 
+at steady state:
+
+prod = a = Iss*(b+g)
+
+ideg = g*Iss
+
+prod = Iss*b + ideg = ab/(b+g) + ideg = c1/c2 + ideg
+
+ideg = prod - c1/c2
+
+alternative method: dI/dt = prod - secr - ideg, at ss dI/dt = 0 -> ideg = prod - secr = prod - c1/c2
+
+### Combined Iss plot
 
 
+```{r}
+layout <- "
+AABB
+CDEF
+"
 
 
+Iss_combo_fig <- hornig_opt_I_timecourse_numcell + I_ss_dist + 
+  const_Iss_v_abg + const_Iss_v_alpha + const_Iss_v_beta + const_Iss_v_gamma +
+  plot_layout(design = layout)
 
+ggsave(out_png("I_ss/Iss_combo_fig"), Iss_combo_fig, 
+       width = 20, height = 9)
 
+Iss_combo_fig
+```

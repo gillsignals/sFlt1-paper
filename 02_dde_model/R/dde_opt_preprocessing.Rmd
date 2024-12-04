@@ -11,9 +11,9 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## Introduction
 
-This file analyzes data from optimization of the 2 equation sFLT1 DDE model to the pulse-chase and constitutive time course datasets. These data were imported using the script "sFlt-model/analysis-R/draft/02_dde_model/dde_opt_import.Rmd".
+This file preprocesses and filters data from optimization of the 2 equation sFLT1 DDE model to the pulse-chase and constitutive time course datasets. These data were imported using the script "02_dde_model/R/dde_opt_import.Rmd".
 
-The optimization was performed 8/21/23 using the Matlab script "sFlt-model/02_dde_model/base_dde_driver.m" with following options: 
+The original optimization was performed 8/21/23 using the Matlab script "02_dde_model/Matlab/base_dde_driver.m" with following options: 
 
 run_mode = "base_model_opt";
 jung_cost_option = "omit_last_Sx_relative";
@@ -44,7 +44,7 @@ source("../../helper_scripts/setup.R")
 
 ```{r}
 # define folder where output will be saved (for example, png images from ggsave)
-outfile_prefix = "../../../saved-figs/02_dde_model/dde_opt_v2/"
+outfile_prefix = "../../saved-figs/02_dde_model/dde_opt/"
 dir.create(outfile_prefix, recursive = TRUE)
 
 # specify decimal resolution
@@ -58,7 +58,7 @@ options(digits = 4)
 ```{r}
 # load optimization results from 8/21
 # (if file is not present, run "dde_opt_import.Rmd" to create it)
-load("../../../saved-data/02_dde_model/dde_opt_sims.rda")
+load("../../saved-data/02_dde_model/dde_opt_sims.rda")
 ```
 
 ### Add fill color columns to experimental data
@@ -189,7 +189,7 @@ constitutive_opt_I_timecourse_unfiltered <- constitutive_full_df %>%
     labs(color = "log2(Cost)") +
     theme1
 
-ggsave(out_png("constitutive_opt_I_timecourse_unfiltered"),
+ggsave(out_png("time_courses/constitutive_opt_I_timecourse_unfiltered"),
        constitutive_opt_I_timecourse_unfiltered, width = 8, height = 6)
 
 constitutive_opt_I_timecourse_unfiltered
@@ -238,7 +238,7 @@ constitutive_plot_X_timecourse_ngml <- function(df){
 constitutive_opt_X_timecourse_ngml_unfiltered <- constitutive_plot_X_timecourse_ngml(constitutive_full_df) +
   ggtitle("Constitutive extracellular sFLT1 (X) - All fits")
 
-ggsave(out_png("constitutive_opt_X_timecourse_ngml_unfiltered"),
+ggsave(out_png("time_courses/constitutive_opt_X_timecourse_ngml_unfiltered"),
        constitutive_opt_X_timecourse_ngml_unfiltered, width = 8, height = 6)
 
 constitutive_opt_X_timecourse_ngml_unfiltered
@@ -308,7 +308,7 @@ pulsechase_opt_X_timecourse_unfiltered <- pulsechase_plot_X_frac_timecourse(puls
   ggtitle("Pulse-chase extracellular sFLT1 (X) - All fits")
 
 # save plot
-ggsave(out_png("pulsechase_opt_X_timecourse_unfiltered"),
+ggsave(out_png("time_courses/pulsechase_opt_X_timecourse_unfiltered"),
        pulsechase_opt_X_timecourse_unfiltered, width = 8, height = 6)
 
 pulsechase_opt_X_timecourse_unfiltered
@@ -391,7 +391,7 @@ pulsechase_opt_I_timecourse_unfiltered <- pulsechase_plot_I_fc_timecourse(pulsec
     #annotate("text", x = 0.25, y = 0.5, label = "Start chase", angle = 90, size = 6)
 
 # save plot
-ggsave(out_png("pulsechase_opt_I_timecourse_unfiltered"),
+ggsave(out_png("time_courses/pulsechase_opt_I_timecourse_unfiltered"),
        pulsechase_opt_I_timecourse_unfiltered, width = 8, height = 6)
 
 pulsechase_opt_I_timecourse_unfiltered
@@ -632,16 +632,12 @@ meta_df_filtered %>%
   ggtitle("Cost of fit by run")
 ```
 
-```{r}
-
-```
-
 
 ## Save objects
 
 ```{r}
 # define folder where output will be saved (for example, png images from ggsave)
-outfile_prefix <- "../../../saved-data/02_dde_model/"
+outfile_prefix <- "../../saved-data/02_dde_model/"
 dir.create(outfile_prefix, recursive = TRUE)
 
 save(param_df, param_df_filtered, meta_df_filtered, opt_df_filtered, param_df_wide,

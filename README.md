@@ -5,7 +5,7 @@ Modeling and analysis code for sFLT1 trafficking manuscript (Gill et al., in pro
 
 Matlab: This code requires the Optimization Toolbox.
 
-R: This code is written in R markdown (Rmd) notebooks, which work best in the RStudio IDE. Required packages are listed in `helper_scripts/setup.R`.
+R: This code is written mainly in R markdown (Rmd) notebooks, which work best in the RStudio IDE. Required packages are listed in `helper_scripts/setup.R`.
 
 ## `01_ode_model/`
 
@@ -60,22 +60,26 @@ Each driver mode calls some combination of these files.
 
 #### R 
 
+IMPORTANT: To run R code, manually move desired simulation output files from timestamped `runs` output folders to `saved-data/01_ode_model`.
+
 Any new datasets are saved to `saved-data/01_ode_model`. Figure outputs are saved to `saved-figs/01_ode_model`.
 
 - `ode_toy_analysis.Rmd`: Uses output from the driver with mode "base_on_off" to produce Figure S1 panels.
 - `ode_hjk_opt_import.Rmd`: Uses output from the driver with mode "opt_100" to import ODE optimization results.
 - `ode_opt_workspace_2023-08-14.Rmd`: Uses imported ODE optimization results to produce Figure 1C-E panels.
 
-### `02_dde_model
+## `02_dde_model`
 
 This folder contains code to simulate sFLT1 secretion as a system of 2 delay differential equations 
 describing intracellular and extracellular sFLT1 pools. 
 There is a fixed time delay between production and either secretion or intracellular degradation. 
 There is also code to optimize the model to experimental data.
 
+### Matlab
+
 #### Driver file: `base_dde_driver.m`
 
-To run simulations related to Figures ___ and ___, run the driver file `base_dde_driver.m`. All other scripts in the folder are called within this driver.
+To run simulations related to Figures (2, 4, 5, S2, S4, S5, S6, S7, S8), run the driver file `base_dde_driver.m`. All other scripts in the folder are called within this driver.
 
 ##### Driver run modes
 
@@ -93,16 +97,12 @@ Each driver mode calls some combination of these files.
 
 ##### Setup scripts and helper functions
 
-These files are analogous to the similarly named files in `01_ode_model`.
-
 - `make_outdir.m`: Function to create a timestamped output directory
 - `module_hjk_opt_setup.m`: Adjust optimization options: cost function format, number of parameter sets, initial distributions of parameters, lower/upper bounds
 - `module_init_hjk_arrays.m`: Initialize output containers for simulation data
 - `module_setup.m`: Adjust initial parameter values, system geometry, and time spans
 
 ##### Simulation functions
-
-These files are analogous to the similarly named files in `01_ode_model`.
 
 - `dde_eqns.m`: Equations used by `dde23` solver to simulate sFLT1 secretion. Called by each of the `sim_` functions below.
 - `hjk_combo_cost.m`: Cost function to optimize trafficking parameters to simultaneously fit Jung et al., 2012 pulse-chase data, one Hornig et al., 2000 dataset, and control data from Kinghorn et al., 2023, within lsqnonlin using specified equations
@@ -112,10 +112,20 @@ These files are analogous to the similarly named files in `01_ode_model`.
 
 ##### Additional modules
 
-These files are analogous to the similarly named files in `01_ode_model`.
-
 - `module_constitutive_run_optimal.m`: Run constitutive simulation with optimal parameter values and report cost
 - `module_jung_run_optimal.m`: Run pulse-chase simulation with optimal parameter values and report cost
+
+### R 
+
+IMPORTANT: To run R code, manually move desired simulation output files from timestamped `runs` output folders to `saved-data/02_dde_model`.
+
+Any new datasets are saved to `saved-data/02_dde_model`. Figure outputs are saved to `saved-figs/02_dde_model`.
+
+- `dde_toy_analysis.Rmd`: Uses output from the driver with mode "base_on_off" to produce Figure S2 panels (general solution of DDE model).
+- `dde_vary_tau.Rmd`: Uses output from the driver with mode "vary_tau_on_off" to analyze the general solution of the DDE model at various tau levels (not in manuscript).
+- `dde_opt_import.Rmd`: Uses output from the driver with mode "base_model_opt" to import DDE optimization results
+- `dde_opt_preprocessing.Rmd`: Uses output from `dde_opt_import.Rmd`, preprocesses and filters, and produces Figure S4A,B 
+- `dde_opt_workspace.Rmd`: Analyzes output from `dde_opt_preprocessing.Rmd` to produce these figures: 2B, 4, 5, S4C, S5, S6, S7, S8
 
 ### `03_candidate_models`
 
@@ -140,16 +150,12 @@ Each driver mode calls some combination of these files.
 
 ##### Setup scripts and helper functions
 
-These files are analogous to the similarly named files in previous modules.
-
 - `make_outdir.m`: Function to create a timestamped output directory
 - `module_hjk_opt_setup.m`: Adjust optimization options: cost function format, number of parameter sets, initial distributions of parameters, lower/upper bounds
 - `module_init_hjk_arrays.m`: Initialize output containers for simulation data
 - `module_setup.m`: Adjust initial parameter values, system geometry, and time spans
 
 ##### Simulation functions
-
-These files are analogous to the similarly named files in previous modules.
 
 - `dde_fun.m`: Equations used by `dde23` solver to simulate sFLT1 secretion. Called by each of the `sim_` functions below.
 - `hjk_combo_cost.m`: Cost function to optimize trafficking parameters to simultaneously fit Jung et al., 2012 pulse-chase data, one Hornig et al., 2000 dataset, and control data from Kinghorn et al., 2023, within lsqnonlin using specified equations
@@ -158,8 +164,6 @@ These files are analogous to the similarly named files in previous modules.
 - `sim_secr_dde.m`: Simulate constitutive sFLT1 production 
 
 ##### Additional modules
-
-These files are analogous to the similarly named files in previous modules.
 
 - `module_constitutive_run_optimal.m`: Run constitutive simulation with optimal parameter values and report cost
 - `module_jung_run_optimal.m`: Run pulse-chase simulation with optimal parameter values and report cost
@@ -189,8 +193,6 @@ Each driver run mode calls some combination of these files
 
 ##### Setup scripts
 
-These files are analogous to the similarly named files in previous modules.
-
 - `make_outdir.m`: Function to create a timestamped output directory
 - `module_setup.m`: Adjust initial parameter values, system geometry, and time spans
 
@@ -200,7 +202,63 @@ These files are analogous to the similarly named files in previous modules.
 - `sim_secr_dde.m`: Simulate constitutive sFLT1 production 
 - `sim_secr_dde_inh_t0.m`: Simulate constitutive sFLT1 production 
 
-## R code
 
-IMPORTANT: To run R code, manually move desired simulation output files from timestamped `runs` output folders to ...
+
+
+
+
+
+
+
+
+
+
+
+## saved-data
+
+### Initial content on Github
+
+Initially contains experimental datasets from ____ and metadata for some optimizations.
+
+#### Experimental datasets
+
+- `hornig.mat`: Matlab struct containing experimental data from Hornig et al., 2000
+- `hornig.rda`: R data frame containing experimental data from Hornig et al., 2000
+- `jung_1d.rda`: Matlab struct containing experimental data from Jung et al., 2012
+- `jung_v2.mat`: R data frame containing experimental data from Jung et al., 2012
+- `kinghorn_ctrl_summary.mat`: Matlab struct containing experimental data from Kinghorn et al., 2024
+
+#### Metadata files
+
+- `02_dde_model/hjk_dde_opt_meta.csv`: metadata table used by `02_dde_model/R/dde_opt_import.Rmd` to correctly format imported simulation output data
+- 
+
+
+
+#### Simulation output file generation
+
+Simulation output files are not available through GitHub and must be generated using the Matlab scripts above.
+
+R scripts will look in this directory for simulation output data. Manually move desired output data from the timestamped `runs` directory to this directory. Some output files may require renaming to match file names in R scripts.
+
+
+
+
+
+
+
+
+## References
+
+### Manuscript
+
+bioRxiv: TBA
+
+### Experimental data
+
+Hornig, C. et al. Release and Complex Formation of Soluble VEGFR-1 from Endothelial Cells and Biological Fluids. Lab. Invest. 80, 443–454 (2000).
+
+Jung, J.-J. et al. Secretion of Soluble Vascular Endothelial Growth Factor Receptor 1 (sVEGFR1/sFlt1) Requires Arf1, Arf6, and Rab11 GTPases. PLoS ONE 7, e44572 (2012).
+
+Kinghorn, K. et al. A defined clathrin-mediated trafficking pathway regulates sFLT1/VEGFR1 secretion from endothelial cells. Angiogenesis 27, 67–89 (2024).
 
