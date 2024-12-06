@@ -11,9 +11,9 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## Introduction
 
-This file analyzes data from optimization of the 2 equation sFLT1 DDE model to the pulse-chase and constitutive time course datasets. These data were imported using the script "sFlt-model/analysis-R/draft/03_candidate_models/candidate_models_import.Rmd".
+This file analyzes data from optimization of the 2 equation sFLT1 DDE model to the pulse-chase and constitutive time course datasets. These data were imported using the script "03_candidate_models/R/candidate_models_import.Rmd".
 
-The optimization was performed 8/23/23 using the Matlab script "sFlt-model/03_candidate_models/dde_candidate_models.m" with following options: 
+The optimization was originally performed 8/23/23 using the Matlab script "03_candidate_models/Matlab/dde_candidate_models.m" with following options: 
 
 run_mode = "candidate_model_opt";
 jung_cost_option = "omit_last_Sx_relative";
@@ -44,7 +44,7 @@ source("../../helper_scripts/setup.R")
 
 ```{r}
 # define folder where output will be saved (for example, png images from ggsave)
-outfile_prefix = "../../../saved-figs/03_candidate_models/"
+outfile_prefix = "../../saved-figs/03_candidate_models/"
 dir.create(outfile_prefix, recursive = TRUE)
 
 # specify decimal resolution
@@ -366,7 +366,7 @@ length(unique(param_df_filtered$run))
 
 ```{r}
 # define folder where output will be saved (for example, png images from ggsave)
-outfile_prefix <- "../../../saved-data/03_candidate_models/"
+outfile_prefix <- "../../saved-data/03_candidate_models/"
 dir.create(outfile_prefix, recursive = TRUE)
 
 save(param_df, param_df_filtered, meta_df_filtered, opt_df_filtered, constitutive_sims, pulsechase_sims,

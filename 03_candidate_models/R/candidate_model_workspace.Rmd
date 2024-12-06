@@ -11,9 +11,9 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## Introduction
 
-This file analyzes data from optimization of the 2 equation sFLT1 DDE model to the Jung and Hornig time course datasets. These data were imported using the script "sFlt-model/analysis-R/draft/03_candidate_models/candidate_models_import.Rmd".
+This file analyzes data from optimization of the 2 equation sFLT1 DDE model to the Jung and Hornig time course datasets. These data were imported using the script "03_candidate_models/R/candidate_models_import.Rmd" and preprocessed using the script "03_candidate_models/R/candidate_opt_preprocessing.Rmd".
 
-The optimization was performed 8/23/23 using the Matlab script "sFlt-model/03_candidate_models/dde_candidate_models.m with following options: 
+The optimization was originally performed 8/23/23 using the Matlab script "03_candidate_models/Matlab/dde_candidate_models.m" with the following options: 
 
 run_mode = "candidate_model_opt";
 jung_cost_option = "omit_last_Sx_relative";
@@ -44,7 +44,7 @@ source("../../helper_scripts/setup.R")
 
 ```{r}
 # define folder where output will be saved (for example, png images from ggsave)
-outfile_prefix = "../../../saved-figs/03_candidate_models/"
+outfile_prefix = "../../saved-figs/03_candidate_models/"
 dir.create(outfile_prefix, recursive = TRUE)
 ```
 
@@ -56,13 +56,13 @@ dir.create(outfile_prefix, recursive = TRUE)
 ```{r}
 # load optimization results from 2023-08-23
 # (if file is not present, run "candidate_models_import.Rmd" to create it)
-load("../../../saved-data/03_candidate_models/pulsechase_constitutive_opt_sims.rda")
+load("../../saved-data/03_candidate_models/pulsechase_constitutive_opt_sims.rda")
 ```
 
 ```{r}
 # load filtered optimization results
 # (if file is not present, run "candidate_models_import.Rmd" to create it)
-load("../../../saved-data/03_candidate_models/candidate_opt_sims_processed.rda")
+load("../../saved-data/03_candidate_models/candidate_opt_sims_processed.rda")
 ```
 
 
@@ -430,7 +430,6 @@ reduced_aic_df_v2 %>%
 
 ### Heatmap attempt 2
 
-
 ```{r}
 component_mat <- reduced_aic_df_v2 %>%
   select(internalize:mat_delay) %>%
@@ -531,7 +530,6 @@ plot(g)
 dev.off()
 ```
 
-## -- BREAKPOINT --
 
 ### Cost vs number of parameters
 
@@ -636,9 +634,6 @@ model_cost_v_nparams
 reduced_aic_df_v2
 ```
 
-
-## -- BREAKPOINT --
-
 ## Add M candidate model labels 
 
 ### Map candidate models to M labels
@@ -729,32 +724,6 @@ ggsave(out_png("time_courses/pulsechase_X_tc_grid"),
        pulsechase_X_tc_grid, width = 6, height = 8)
 ```
 
-
-#### Alternate plot approach using patchwork
-
-```{r eval=FALSE}
-# alternate approach using patchwork - NOT CURRENTLY USED
-plot_list <- lapply(1:8, function(x){
-  
-  # define model version to analyze
-  model_label <- paste0("M", x)
-  
-  # plot sim v expt for all sims of that model version
-  gg <- pulsechase_sims_labeled %>%
-    filter(label == model_label) %>%
-    jung_plot_X_frac_timecourse() +
-    ggtitle(model_label) +
-    theme(legend.position = "none")
-
-  #save plot
-  ggsave(out_png(paste0("time_courses/jung_opt_X_timecourse_big_", model_label)),
-         gg, width = 4, height = 3)
-  
-  gg
-})
-
-wrap_plots(plot_list, ncol = 2)
-```
 
 ### Jung I
 

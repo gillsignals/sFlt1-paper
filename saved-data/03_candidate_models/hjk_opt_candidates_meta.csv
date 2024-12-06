@@ -1,0 +1,16 @@
+off,no,no,5
+off,no,yes,6
+off,yes,no,6
+off,yes,yes,7
+lin_decay,no,no,6
+lin_decay,no,yes,7
+lin_decay,yes,no,7
+lin_decay,yes,yes,8
+exp_decay,no,no,6
+exp_decay,no,yes,7
+exp_decay,yes,no,7
+exp_decay,yes,yes,8
+delay_off,no,no,6
+delay_off,no,yes,7
+delay_off,yes,no,7
+delay_off,yes,yes,8

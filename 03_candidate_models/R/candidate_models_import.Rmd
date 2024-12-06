@@ -11,9 +11,9 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## Introduction
 
-This file analyzes data from optimization of the 2 equation sFLT1 DDE model to the Jung and Hornig time course datasets. These data will be analyzed using the script "sFlt-model/analysis-R/draft/03_candidate_models/candidate_opt_workspace.Rmd".
+This file imports data from optimization of the 2 equation sFLT1 DDE model to the Jung and Hornig time course datasets. These data will be processed further using the script "03_candidate_models/candidate_opt_preprocessing.Rmd" and then analyzed with the script "03_candidate_models/R/candidate_model_workspace.Rmd".
 
-The optimization was performed 8/23/23 using the Matlab script "sFlt-model/03_candidate_models/dde_candidate_models.m" with following options: 
+The optimization was originally performed 8/23/23 using the Matlab script "03_candidate_models/Matlab/dde_candidate_models.m" with following options: 
 
 run_mode = "candidate_model_opt";
 jung_cost_option = "omit_last_Sx_relative";
@@ -33,37 +33,19 @@ This optimization uses 4 species (I, I_deg, X, X_deg) and optimizes 7 parameters
 
 ## Setup
 
-### Libraries
+### Common setup
 
 ```{r}
-# load libraries
-library(tidyverse)
-library(R.matlab)
-library(circlize)     # for heatmap colors
-library(testthat)
+# load packages, define helper functions, define color palettes, load experimental data
+source("../../helper_scripts/setup.R")
 ```
 
-
-
-### Helper functions and objects
+### Adjust parameter mapping to color palette
 
 ```{r}
-# set theme for all plots
-theme1 <- theme_light() +
-  theme(
-    text = element_text(size = 16),
-    plot.title = element_text(hjust = 0.5),
-    strip.background =element_rect(fill="gray50"),
-    strip.text = element_text(color = "white", face = "bold")
-  )
-
 # define colorblind-friendly palette
 # black, red, sky blue, orange, green, yellow, dark blue, pink
 cb_pal <- c("#000000", "#D55E00",  "#56B4E9", "#E69F00", "#009E73", "#F0E442", "#0072B2",  "#CC79A7")
-
-# define purple -> green color palette
-# endpoints taken from RColorBrewer "PRGn"
-pg_color_func <- colorRamp2(c(-1, 0, 1), c("#762A83", "white", "#1B7837"))
 
 # map parameter name to index of desired color
 param_ind <- list(alpha = 3, beta = 2, gamma = 4, delta = 5, kappa = 7, tau = 8, none = 1)
@@ -80,11 +62,6 @@ for (i in 1:length(param_names)) {
 # set labels for Greek letters in plots
 color_breaks <- names(param_pal)
 color_labels <- parse(text = color_breaks)
-
-# convert string filename to "outfile_prefix/filename.png"
-out_png <- function(filename){
-  paste0(outfile_prefix, filename, ".png")
-}
 ```
 
 ## Import data
@@ -93,14 +70,13 @@ out_png <- function(filename){
 
 ```{r}
 # specify file names
-param_file_name <- "../../../saved-data/03_candidate_models/hjk_opt_candidates_input.mat"
-opt_file_name <- "../../../saved-data/03_candidate_models/hjk_opt_candidates_100.mat"
-model_meta_file_name <- "../../../saved-data/03_candidate_models/hjk_opt_candidates_meta.csv"
+param_file_name <- "../../saved-data/03_candidate_models/hjk_opt_candidates_input.mat"
+opt_file_name <- "../../saved-data/03_candidate_models/hjk_opt_candidates_100.mat"
+model_meta_file_name <- "../../saved-data/03_candidate_models/hjk_opt_candidates_meta.csv"
 
 # import file data
 param_file <- readMat(param_file_name)
 opt_file <- readMat(opt_file_name)
-# sim_file_hornig <- readMat(sim_file_name_hornig)
 model_meta <- read_csv(model_meta_file_name, col_names = FALSE, show_col_types = FALSE)
 ```
 
@@ -181,12 +157,6 @@ species_names <- str_replace(names(param_file$sp[,,1]), "\\.", "_")
 - Optimal parameter values returned by `lsqnonlin` for each optimization run
 - Cost associated with this parameter set (sum of squares returned by `lsqnonlin` using the `resnorm` output argument)
 - Exit flag for optimization
-
-
-```{r}
-names(opt_file)
-```
-
 
 ```{r}
 opt_df <- as.data.frame(opt_file$optimal)
@@ -367,7 +337,7 @@ constitutive_full_df
 
 ```{r}
 # define folder where output will be saved (for example, png images from ggsave)
-outfile_prefix <- "../../../saved-data/03_candidate_models/"
+outfile_prefix <- "../../saved-data/03_candidate_models/"
 dir.create(outfile_prefix, recursive = TRUE)
 
 save(pulsechase_full_df, constitutive_full_df, meta_df, opt_df, conv_factor_numcell_to_ngml,

@@ -12,7 +12,7 @@ R: This code is written mainly in R markdown (Rmd) notebooks, which work best in
 This folder contains code to simulate and analyze sFLT1 secretion as a system of 2 ordinary differential equations 
 describing intracellular and extracellular sFLT1 pools. There is also code to optimize the model to experimental data.
 
-### Matlab 
+### `01_ode_model/Matlab` 
 
 #### Driver file: `ode_driver.m`
 
@@ -58,7 +58,7 @@ Each driver mode calls some combination of these files.
 - `module_constitutive_run_optimal.m`: Run constitutive simulation with optimal parameter values and report cost
 - `module_jung_run_optimal.m`: Run pulse-chase simulation with optimal parameter values and report cost
 
-#### R 
+### `01_ode_model/R` 
 
 IMPORTANT: To run R code, manually move desired simulation output files from timestamped `runs` output folders to `saved-data/01_ode_model`.
 
@@ -75,7 +75,7 @@ describing intracellular and extracellular sFLT1 pools.
 There is a fixed time delay between production and either secretion or intracellular degradation. 
 There is also code to optimize the model to experimental data.
 
-### Matlab
+### `02_dde_model/Matlab`
 
 #### Driver file: `base_dde_driver.m`
 
@@ -89,7 +89,7 @@ To run simulations related to Figures (2, 4, 5, S2, S4, S5, S6, S7, S8), run the
 
 ##### Exporting simulation output
 
-To export output data for analysis in R, set `save_params = 1` and `save_data = 1`, which will save timestamped output files in `01_ode_model/runs`. To run R scripts with these data, manually move output files to ________.
+To export output data for analysis in R, set `save_params = 1` and `save_data = 1`, which will save timestamped output files in `02_dde_model/runs`. To run R scripts with these data, manually move output files to ________.
 
 #### Other files
 
@@ -115,7 +115,7 @@ Each driver mode calls some combination of these files.
 - `module_constitutive_run_optimal.m`: Run constitutive simulation with optimal parameter values and report cost
 - `module_jung_run_optimal.m`: Run pulse-chase simulation with optimal parameter values and report cost
 
-### R 
+### `02_dde_model/R`
 
 IMPORTANT: To run R code, manually move desired simulation output files from timestamped `runs` output folders to `saved-data/02_dde_model`.
 
@@ -127,9 +127,11 @@ Any new datasets are saved to `saved-data/02_dde_model`. Figure outputs are save
 - `dde_opt_preprocessing.Rmd`: Uses output from `dde_opt_import.Rmd`, preprocesses and filters, and produces Figure S4A,B 
 - `dde_opt_workspace.Rmd`: Analyzes output from `dde_opt_preprocessing.Rmd` to produce these figures: 2B, 4, 5, S4C, S5, S6, S7, S8
 
-### `03_candidate_models`
+## `03_candidate_models`
 
 This folder contains code to optimize 8 different systems of ordinary and delay differential equations to experimental data. The equations include some combination of temporal decay in production rate, delayed intracellular clearance, and internalization of extracellular sFLT1.
+
+### `03_candidate_models/Matlab`
 
 #### Driver file: `driver_dde_candidate.m`
 
@@ -142,7 +144,7 @@ To run simulations related to Figures ___ and ___, run the driver file `driver_d
 
 ##### Exporting simulation outputs
 
-To export output data for analysis in R, set `save_params = 1` and `save_data = 1`, which will save timestamped output files in `01_ode_model/runs`. To run R scripts with these data, manually move output files to ________.
+To export output data for analysis in R, set `save_params = 1` and `save_data = 1`, which will save timestamped output files in `03_candidate_models/runs`. To run R scripts with these data, manually move output files to ________.
 
 #### Other files
 
@@ -168,9 +170,17 @@ Each driver mode calls some combination of these files.
 - `module_constitutive_run_optimal.m`: Run constitutive simulation with optimal parameter values and report cost
 - `module_jung_run_optimal.m`: Run pulse-chase simulation with optimal parameter values and report cost
 
-### `04_sensitivity`
+### `03_candidate_models/R`
+
+- `candidate_models_import.Rmd`: Uses output from the driver with mode "candidate_model_opt" to import optimization results for 8 sets of DDEs
+- `candidate_opt_preprocessing.Rmd`: Uses output from `candidate_models_import.Rmd`, preprocesses and filters, and produces Figure ___
+- `candidate_model_workspace.Rmd`: Analyzes output from `dde_opt_preprocessing.Rmd` to produce these figures: ___
+
+## `04_sensitivity`
 
 This folder contains code that performs various types of sensitivity analysis on the optimized system of delay differential equations.
+
+### `04_sensitivity/Matlab`
 
 #### Driver file: `sens_analysis.m`
 
@@ -202,7 +212,7 @@ Each driver run mode calls some combination of these files
 - `sim_secr_dde.m`: Simulate constitutive sFLT1 production 
 - `sim_secr_dde_inh_t0.m`: Simulate constitutive sFLT1 production 
 
-
+### `04_sensitivity/R`
 
 
 
@@ -231,7 +241,7 @@ Initially contains experimental datasets from ____ and metadata for some optimiz
 #### Metadata files
 
 - `02_dde_model/hjk_dde_opt_meta.csv`: metadata table used by `02_dde_model/R/dde_opt_import.Rmd` to correctly format imported simulation output data
-- 
+- `03_candidate_models/hjk_opt_candidates_meta.csv`: metadata table used by `03_candidate_models/R/candidate_models_import.Rmd` to correctly format imported simulation output data
 
 
 
