@@ -9,7 +9,7 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-This file imports data from sensitivity analysis of extracellular sFLT1 (X) and intracellular sFLT1 (I) at 72h performed 9/20/23 using the Matlab script "sFlt-model/04_sensitivity/sens_analysis.m" with run_mode = "local_sens_const".
+This file imports data from sensitivity analysis of extracellular sFLT1 (X) and intracellular sFLT1 (I) at 72h, originally performed 9/20/23 using the Matlab script "sFlt-model/04_sensitivity/sens_analysis.m" with run_mode = "local_sens_const".
 
 ## Setup
 
@@ -24,7 +24,7 @@ source("../../helper_scripts/setup.R")
 
 ```{r}
 # define folder where output will be saved (for example, png images from ggsave)
-outfile_prefix = "../../../saved-figs/04_sensitivity/local_sens/"
+outfile_prefix = "../../saved-figs/04_sensitivity/local_sens/"
 dir.create(outfile_prefix, recursive = TRUE)
 ```
 
@@ -36,7 +36,7 @@ dir.create(outfile_prefix, recursive = TRUE)
 
 ```{r}
 # import file 
-sens_file <- readMat("../../../saved-data/04_sensitivity/local_sens/local_sens_const.mat")
+sens_file <- readMat("../../saved-data/04_sensitivity/local_sens/local_sens_const.mat")
 
 # inspect available variables
 names(sens_file)

@@ -10,7 +10,6 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 
-
 This file imports data from sensitivity analysis of extracellular sFLT1 (X) and intracellular sFLT1 (I) at 72h performed 9/26/23 using the Matlab script "sFlt-model/04_sensitivity/sens_analysis.m" with run_mode = "sens_vary_inh_genchem", genetic_chemical = "genetic".
 
 ## Setup
@@ -26,7 +25,7 @@ source("../../helper_scripts/setup.R")
 
 ```{r}
 # define folder where output will be saved (for example, png images from ggsave)
-outfile_prefix = "../../../saved-figs/04_sensitivity/frac_inh_gen/"
+outfile_prefix = "../../saved-figs/04_sensitivity/frac_inh_gen/"
 dir.create(outfile_prefix, recursive = TRUE)
 ```
 
@@ -36,7 +35,7 @@ dir.create(outfile_prefix, recursive = TRUE)
 
 ```{r}
 # import file of input parameters
-param_file <- readMat("../../../saved-data/04_sensitivity/frac_inh_gen/input.mat")
+param_file <- readMat("../../saved-data/04_sensitivity/frac_inh_gen/input.mat")
 
 # inspect available variables
 names(param_file)
@@ -47,7 +46,7 @@ names(param_file)
 ### Import experimental data from CSV
 
 ```{r}
-exp_df <- read_csv("../../../saved-data/karina/updated_inhibitor_data_2023-03-29/kd_wrangled.csv")
+exp_df <- read_csv("../../saved-data/inh_data/kd_wrangled.csv")
 ```
 
 
@@ -89,7 +88,7 @@ vamp3_lys_ratio <- pull_mean_ratio("VAMP3", "sFlt1_lysate")
 
 ```{r}
 # load experimental data from Hornig
-load("../../../saved-data/hornig.rda")
+load("../../saved-data/hornig.rda")
 
 hornig_basal <- hornig %>%
   filter(condition == "basal") %>%
@@ -102,7 +101,7 @@ hornig_basal
 
 ```{r}
 # import file of input parameters
-param_file <- readMat("../../../saved-data/04_sensitivity/frac_inh_gen/input.mat")
+param_file <- readMat("../../saved-data/04_sensitivity/frac_inh_gen/input.mat")
 
 # inspect available variables
 names(param_file)
@@ -112,7 +111,7 @@ names(param_file)
 
 ```{r}
 # import file 
-inh_file <- readMat("../../../saved-data/04_sensitivity/frac_inh_gen/sens_vary_inh_genchem_genetic.mat")
+inh_file <- readMat("../../saved-data/04_sensitivity/frac_inh_gen/sens_vary_inh_genchem_genetic.mat")
 
 # inspect available variables
 names(inh_file)
@@ -562,10 +561,6 @@ beta_18h_X_v_inh_annot_4_poster <- Y_18h %>%
   theme_poster +
   xlab(TeX(r'(% inhibition)')) +
   ylab(TeX(r'($X_{18h}$)')) +
-  #geom_hline(yintercept = bref_cm_ratio) + # annotate X level with brefeldin
-  #geom_hline(yintercept = chp_cm_ratio) +   # annotate X level with chlorpromazine
-  #geom_hline(yintercept = tat_cm_ratio) + # annotate X level with TATNSF700
-# or annotate()
   annotate("segment", x = -Inf, xend = rab27a_beta_X_inh_frac*100, 
            y = rab27a_cm_ratio, yend = rab27a_cm_ratio, lty = 1) +
   annotate("segment", x = rab27a_beta_X_inh_frac*100, xend = rab27a_beta_X_inh_frac*100, 
@@ -613,21 +608,12 @@ beta_18h_X_v_inh_annot_rab27a <- Y_18h %>%
   theme_paper +
   xlab(TeX(r'(Fraction inhibition of $\beta$)')) +
   ylab("Extracellular sFLT1 at 18h \n(Normalized to control)") +
-  #geom_hline(yintercept = bref_cm_ratio) + # annotate X level with brefeldin
-  #geom_hline(yintercept = chp_cm_ratio) +   # annotate X level with chlorpromazine
-# or annotate()
   annotate("segment", x = 0, xend = rab27a_beta_X_inh_frac, 
            y = rab27a_cm_ratio, yend = rab27a_cm_ratio, lty = 2) +
   annotate("segment", x = rab27a_beta_X_inh_frac, xend = rab27a_beta_X_inh_frac, 
            y = 0, yend = rab27a_cm_ratio, lty = 2) +
-  #annotate("segment", x = 0, xend = chp_beta_X_inh_frac, 
-  #         y = chp_cm_ratio, yend = chp_cm_ratio, lty = 1) +
-  #annotate("segment", x = chp_beta_X_inh_frac, xend = chp_beta_X_inh_frac, 
-  #         y = 0, yend = chp_cm_ratio, lty = 1) +
   annotate("text", x = 0.4, y = rab27a_cm_ratio + .05, label = "RAB27a", size = 6) +
-  #annotate("text", x = 0.2, y = chp_cm_ratio + .05, label = "chlorpromazine", size = 6) +
-  annotate("point", x = rab27a_beta_X_inh_frac, y = rab27a_cm_ratio, size = 5) #+
-  #annotate("point", x = chp_beta_X_inh_frac, y = chp_cm_ratio, size = 5)
+  annotate("point", x = rab27a_beta_X_inh_frac, y = rab27a_cm_ratio, size = 5)
 
 # save plot
 ggsave(out_png("beta_18h_X_v_inh_annot_rab27a"),
@@ -653,32 +639,10 @@ beta_18h_I_v_inh_annot_4 <- Y_18h %>%
   geom_hline(yintercept = stx3_lys_ratio, lty = 3) +
   geom_hline(yintercept = stx6_lys_ratio, lty = 2) +
   geom_hline(yintercept = rab27a_lys_ratio, lty = 1) +
-  #geom_hline(yintercept = bref_lys_ratio, lty = 2) + # annotate X level with brefeldin
-  #geom_hline(yintercept = chp_lys_ratio) +   # annotate X level with chlorpromazine
-  #geom_hline(yintercept = tat_lys_ratio) +  # annotate X level with TATNSF
-# or annotate()
-  #annotate("segment", x = 0, xend = rab27a_beta_I_inh_frac, 
-   #        y = rab27a_lys_ratio, yend = rab27a_lys_ratio, lty = 1) +
-  #annotate("segment", x = rab27a_beta_I_inh_frac, xend = rab27a_beta_I_inh_frac, 
-   #        y = 0, yend = rab27a_lys_ratio, lty = 1) +
-  #annotate("segment", x = 0, xend = stx3_beta_I_inh_frac, 
-   #        y = stx3_lys_ratio, yend = stx3_lys_ratio, lty = 2) +
-  #annotate("segment", x = stx3_beta_I_inh_frac, xend = stx3_beta_I_inh_frac, 
-  #         y = 0, yend = stx3_lys_ratio, lty = 2) +
-  #annotate("segment", x = 0, xend = stx6_beta_I_inh_frac, 
-  #         y = stx6_lys_ratio, yend = stx6_lys_ratio, lty = 3) +
-  #annotate("segment", x = stx6_beta_I_inh_frac, xend = stx6_beta_I_inh_frac, 
-  #         y = 0, yend = stx6_lys_ratio, lty = 3) +
-  #annotate("segment", x = 0, xend = vamp3_beta_X_inh_frac, 
-  #         y = vamp3_lys_ratio, yend = vamp3_lys_ratio, lty = 3) +
-  #annotate("segment", x = vamp3_beta_I_inh_frac, xend = vamp3_beta_I_inh_frac, 
-  #         y = 0, yend = vamp3_lys_ratio, lty = 3)
   annotate("text", x = 0.36, y = rab27a_lys_ratio - .1, label = "siRAB27a", size = 6) +
   annotate("text", x = 0.9, y = stx3_lys_ratio - .1, label = "siSTX3", size = 6) +
   annotate("text", x = 0.75, y = stx6_lys_ratio + .1, label = "siSTX6", size = 6) +
   annotate("text", x = 0.15, y = vamp3_lys_ratio + .1, label = "siVAMP3", size = 6)
-  #annotate("point", x = bref_beta_I_inh_frac, y = bref_lys_ratio, size = 5) +
-  #annotate("point", x = tat_beta_I_inh_frac, y = tat_lys_ratio, size = 5) #+
 
 # save plot
 ggsave(out_png("beta_18h_I_v_inh_annot_4"),

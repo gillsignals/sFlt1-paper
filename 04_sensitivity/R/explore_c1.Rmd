@@ -22,7 +22,7 @@ source("../../helper_scripts/setup.R")
 
 ```{r}
 # define folder where output will be saved (for example, png images from ggsave)
-outfile_prefix = "../../../saved-figs/04_sensitivity/explore_c1/"
+outfile_prefix = "../../saved-figs/04_sensitivity/explore_c1/"
 dir.create(outfile_prefix, recursive = TRUE)
 ```
 
@@ -31,8 +31,8 @@ dir.create(outfile_prefix, recursive = TRUE)
 ### Import .mat files
 
 ```{r}
-param_file_name <- "../../../saved-data/04_sensitivity/explore_c1/input.mat"
-alt_file_name <- "../../../saved-data/04_sensitivity/explore_c1/explore_c1.mat"
+param_file_name <- "../../saved-data/04_sensitivity/explore_c1/input.mat"
+alt_file_name <- "../../saved-data/04_sensitivity/explore_c1/explore_c1.mat"
 
 # read files and extract data
 param_file <- readMat(param_file_name)
@@ -103,6 +103,7 @@ Y_df <- Y_df %>%
 ```{r}
 Y_df
 ```
+
 ### Extract parameter values
 
 ```{r}

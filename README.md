@@ -135,7 +135,7 @@ This folder contains code to optimize 8 different systems of ordinary and delay 
 
 #### Driver file: `driver_dde_candidate.m`
 
-To run simulations related to Figures ___ and ___, run the driver file `driver_dde_candidate.m`. All other scripts in the folder are called within this driver.
+To run simulations related to Figures 3 and S3, run the driver file `driver_dde_candidate.m`. All other scripts in the folder are called within this driver.
 
 ##### Driver run modes
 
@@ -173,8 +173,8 @@ Each driver mode calls some combination of these files.
 ### `03_candidate_models/R`
 
 - `candidate_models_import.Rmd`: Uses output from the driver with mode "candidate_model_opt" to import optimization results for 8 sets of DDEs
-- `candidate_opt_preprocessing.Rmd`: Uses output from `candidate_models_import.Rmd`, preprocesses and filters, and produces Figure ___
-- `candidate_model_workspace.Rmd`: Analyzes output from `dde_opt_preprocessing.Rmd` to produce these figures: ___
+- `candidate_opt_preprocessing.Rmd`: Uses output from `candidate_models_import.Rmd`, preprocesses and filters
+- `candidate_model_workspace.Rmd`: Analyzes output from `dde_opt_preprocessing.Rmd` to produce these figures: 3BC, S3
 
 ## `04_sensitivity`
 
@@ -184,13 +184,13 @@ This folder contains code that performs various types of sensitivity analysis on
 
 #### Driver file: `sens_analysis.m`
 
-To run simulations related to Figures ___ and ___, run the driver file `sens_analysis.m`. All other scripts in the folder are called within this driver.
+To run simulations related to Figures 5-8 and S9-S13, run the driver file `sens_analysis.m`. All other scripts in the folder are called within this driver.
 
 ##### Driver run modes
 
 - `"base_const"`: constitutive secretion with base parameters
 - `"local_sens_const"`: local (x%) sensitivity analysis of constitutive case parameters 
-- `"sens_vary_inh_genchem"`: univariate sensitivity analysis - percent inhibition of individual parameters
+- `"sens_vary_inh_genchem"`: univariate sensitivity analysis - percent inhibition of individual parameters; change inhibition type with `genetic_chemical` setting
 - `"sens_logscale_sqrt10"`: univariate sensitivity analysis - scale individual parameters by powers of sqrt(10)
 - `"explore_c1"`: Vary alpha and beta while keeping c1 = alpha*beta constant
 - `"explore_c2"`: Vary beta and gamma while keeping c2 = beta+gamma constant
@@ -214,21 +214,22 @@ Each driver run mode calls some combination of these files
 
 ### `04_sensitivity/R`
 
+All files here use output from "sFlt-model/04_sensitivity/sens_analysis.m" with the listed run modes. Files are listed in the order their figures appear in the manuscript.
 
-
-
-
-
-
-
-
-
+- `local_sens_const.Rmd`: Uses output from run_mode = "local_sens_const" to produce Figure 6A 
+- `powers_sqrt_10_constitutive.Rmd`: Uses output from run_mode = "sens_logscale_sqrt10" to produce Figures 6B and S9
+- `explore_c1.Rmd`: Uses output from run_mode = "explore_c1" to produce Figure S10AB
+- `explore_c2.Rmd`: Uses output from run_mode = "explore_c2" to produce Figure S10CD
+- `frac_inh_chemical.Rmd`: Uses output from run_mode = "sens_vary_inh_genchem" with genetic_chemical = "chemical" to produce Figure 7BCD, S11A
+- `frac_inh_genetic.Rmd`: Uses output from run_mode = "sens_vary_inh_genchem" with genetic_chemical = "genetic" to produce Figure 7EFG, S11B
+- `diffbase_frac_inh_chemical.Rmd`: Uses output from run_mode = "sens_vary_base_inh_genchem" with genetic_chemical = "chemical" to produce Figure 8A, S12, S13A
+- `diffbase_frac_inh_genetic.Rmd`: Uses output from run_mode = "sens_vary_base_inh_genchem" with genetic_chemical = "genetic" to produce Figure 8B, S12 S13B
 
 ## saved-data
 
 ### Initial content on Github
 
-Initially contains experimental datasets from ____ and metadata for some optimizations.
+Initially contains experimental datasets from listed references and metadata for some optimizations.
 
 #### Experimental datasets
 
@@ -236,27 +237,20 @@ Initially contains experimental datasets from ____ and metadata for some optimiz
 - `hornig.rda`: R data frame containing experimental data from Hornig et al., 2000
 - `jung_1d.rda`: Matlab struct containing experimental data from Jung et al., 2012
 - `jung_v2.mat`: R data frame containing experimental data from Jung et al., 2012
-- `kinghorn_ctrl_summary.mat`: Matlab struct containing experimental data from Kinghorn et al., 2024
+- `kinghorn_ctrl_summary.mat`: Matlab struct containing experimental control data from Kinghorn et al., 2024
+- `inh_data/inh_data_wrangled.csv`: Table with experimental data for chemical inhibitors from Kinghorn et al., 2024
+- `inh_data/kd_wrangled.csv`: Table with experimental data for genetic knockdowns from Kinghorn et al., 2024
 
 #### Metadata files
 
 - `02_dde_model/hjk_dde_opt_meta.csv`: metadata table used by `02_dde_model/R/dde_opt_import.Rmd` to correctly format imported simulation output data
 - `03_candidate_models/hjk_opt_candidates_meta.csv`: metadata table used by `03_candidate_models/R/candidate_models_import.Rmd` to correctly format imported simulation output data
 
-
-
 #### Simulation output file generation
 
 Simulation output files are not available through GitHub and must be generated using the Matlab scripts above.
 
 R scripts will look in this directory for simulation output data. Manually move desired output data from the timestamped `runs` directory to this directory. Some output files may require renaming to match file names in R scripts.
-
-
-
-
-
-
-
 
 ## References
 

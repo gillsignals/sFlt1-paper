@@ -26,7 +26,8 @@ source("../../helper_scripts/setup.R")
 
 ```{r}
 # define folder where output will be saved (for example, png images from ggsave)
-outfile_prefix = "../../../saved-figs/04_sensitivity/vary_base_vary_inh_gen/"
+data_prefix = "../../saved-data/04_sensitivity/vary_base_vary_inh_gen/"
+outfile_prefix = "../../saved-figs/04_sensitivity/vary_base_vary_inh_gen/"
 dir.create(outfile_prefix, recursive = TRUE)
 ```
 
@@ -35,7 +36,7 @@ dir.create(outfile_prefix, recursive = TRUE)
 ### Import experimental data from CSV
 
 ```{r}
-exp_df <- read_csv("../../../saved-data/karina/updated_inhibitor_data_2023-03-29/kd_wrangled.csv")
+exp_df <- read_csv("../../saved-data/inh_data/kd_wrangled.csv")
 ```
 
 ### Calculate mean treatment/control ratios (fraction of control)
@@ -70,7 +71,7 @@ vamp3_lys_ratio <- pull_mean_ratio("VAMP3", "sFlt1_lysate")
 
 ```{r}
 # load experimental data from Hornig
-load("../../../saved-data/hornig.rda")
+load("../../saved-data/hornig.rda")
 
 hornig_basal <- hornig %>%
   filter(condition == "basal") %>%
@@ -83,7 +84,7 @@ hornig_basal
 
 ```{r}
 # import file of input parameters
-param_file <- readMat("../../../saved-data/04_sensitivity/vary_base_vary_inh_gen/input.mat")
+param_file <- readMat(paste0(data_prefix, "input.mat"))
 
 # inspect available variables
 names(param_file)
@@ -93,7 +94,7 @@ names(param_file)
 
 ```{r}
 # import file 
-inh_file <- readMat("../../../saved-data/04_sensitivity/vary_base_vary_inh_gen/sens_diffbase_output.mat")
+inh_file <- readMat(paste0(data_prefix, "sens_diffbase_output.mat"))
 
 # inspect available variables
 names(inh_file)
@@ -243,14 +244,14 @@ make_sim_Y_df <- function(Y_mat){
 If Y_df has already been generated, load it. Otherwise, generate and save Y_df.
 
 ```{r}
-Y_df_filename <- paste0(outfile_prefix, "Y_df_imported.rda")
+Y_df_filename <- paste0(data_prefix, "Y_df_imported.rda")
 
 if(file.exists(Y_df_filename)){
   load(Y_df_filename)
 } else {
   # extract simulated data
   Y_df <- make_sim_Y_df(inh_file$Y.all)
-  save(Y_df, file = paste0(outfile_prefix, "Y_df_imported.rda"))
+  save(Y_df, file = Y_df_filename)
 }
 ```
 
@@ -287,7 +288,7 @@ param_meta_df
 ### Merge time course data and parameter inhibition metadata
 
 ```{r}
-Y_df_filename_2 <- paste0(outfile_prefix, "Y_df_meta_added.rda")
+Y_df_filename_2 <- paste0(data_prefix, "Y_df_meta_added.rda")
 
 if(file.exists(Y_df_filename_2)){
   load(Y_df_filename_2)
@@ -296,7 +297,7 @@ if(file.exists(Y_df_filename_2)){
   Y_df <- Y_df %>%
     left_join(param_meta_df, by = "run")
   
-  save(Y_df, file = paste0(outfile_prefix, Y_df_filename_2))
+  save(Y_df, file = Y_df_filename_2)
 }
 ```
 
@@ -467,7 +468,6 @@ X_I_base_tcs
 ## 72h plots: fraction of initial amount 
 
 ### abgd, facet grid, X and I
-
 
 ```{r}
 inhfrac_abgd_xi_grid_72h <- Y_72h %>%
@@ -1038,9 +1038,6 @@ ggsave(out_png("vamp3_18h_beta_inh_annot"),
 vamp3_18h_beta_inh_annot
 ```
 
-
-
-
 ##### STX3
 
 ```{r}
@@ -1068,9 +1065,7 @@ ggsave(out_png("stx6_18h_beta_inh_annot"),
 stx6_18h_beta_inh_annot
 ```
 
-
 ##### RAB27a
-
 
 ```{r}
 rab27a_18h_beta_inh_annot <- (X_18h_v_inh_frac_beta_rab27a + theme(legend.position = "none")) /
@@ -1084,7 +1079,7 @@ rab27a_18h_beta_inh_annot
 ```
 
 
-### Combined chem inh figures
+### Combined genetic inh figures
 
 #### Fold change vs inh frac, 18h and 72h
 
@@ -1110,9 +1105,6 @@ combo_fig_18h_72h
 
 #### Comparison to experimental data
 
-
-
-
 ```{r}
 combo_fig_gen_inh_vary_base <- (X_18h_v_inh_frac_beta_stx3 + 
    ggtitle("STX3") +
@@ -1136,31 +1128,4 @@ ggsave(out_png("combo_fig_gen_inh_vary_base"),
 
 combo_fig_gen_inh_vary_base
 ```
-
-
-
-
-```{r}
-p1 <- bref_18h_beta_inh_annot +
-  theme(legend.position = "none")
-
-p2 <- chp_18h_beta_inh_annot +
-  theme(legend.position = "none")
-
-p3 <- tat_18h_beta_inh_annot +
-  theme(legend.position = "none")
-
-p4 <- chq_18h_gamma_inh_annot +
-  theme(legend.position = "none")
-
-p1 + p2 + p3 + p4 + plot_layout(ncol = 4)
-```
-
-
-
-
-
-
-
-
 

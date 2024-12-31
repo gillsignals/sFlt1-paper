@@ -25,7 +25,7 @@ source("../../helper_scripts/setup.R")
 
 ```{r}
 # define folder where output will be saved (for example, png images from ggsave)
-outfile_prefix = "../../../saved-figs/04_sensitivity/frac_inh_chem/"
+outfile_prefix = "../../saved-figs/04_sensitivity/frac_inh_chem/"
 dir.create(outfile_prefix, recursive = TRUE)
 ```
 
@@ -35,7 +35,7 @@ dir.create(outfile_prefix, recursive = TRUE)
 
 ```{r}
 # import file of input parameters
-param_file <- readMat("../../../saved-data/04_sensitivity/frac_inh_chem/input.mat")
+param_file <- readMat("../../saved-data/04_sensitivity/frac_inh_chem/input.mat")
 
 # inspect available variables
 names(param_file)
@@ -45,7 +45,7 @@ names(param_file)
 
 ```{r}
 # import file 
-inh_file <- readMat("../../../saved-data/04_sensitivity/frac_inh_chem/sens_vary_inh_genchem_chemical.mat")
+inh_file <- readMat("../../saved-data/04_sensitivity/frac_inh_chem/sens_vary_inh_genchem_chemical.mat")
 
 # inspect available variables
 names(inh_file)
@@ -215,7 +215,7 @@ Y_combo
 ### Kinghorn experimental data from CSV
 
 ```{r}
-exp_df <- read_csv("../../../saved-data/karina/updated_inhibitor_data_2023-03-29/inh_data_wrangled.csv")
+exp_df <- read_csv("../../saved-data/inh_data/inh_data_wrangled.csv")
 ```
 
 ### Calculate mean treatment/control ratios (fraction of control)
@@ -286,7 +286,7 @@ chq_gamma_I_inh_frac <- Y_18h_gamma$inh_frac[which.min(
 
 ```{r}
 # load experimental data from Hornig
-load("../../../saved-data/hornig.rda")
+load("../../saved-data/hornig.rda")
 
 hornig_basal <- hornig %>%
   filter(condition == "basal") %>%
@@ -684,18 +684,6 @@ inhfrac_abgd_xi_grid_combo
 
 
 ## Time courses for 90% inhibition
-
-```{r}
-base_df
-```
-
-
-```{r}
-Y_df %>%
-  filter(inh_frac == .99) %>%
-  select(t, X, I, param_altered)
-```
-
 
 ```{r}
 Y_df_90pct <- Y_df %>%

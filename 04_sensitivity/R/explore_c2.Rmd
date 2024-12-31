@@ -23,7 +23,7 @@ source("../../helper_scripts/setup.R")
 
 ```{r}
 # define folder where output will be saved (for example, png images from ggsave)
-outfile_prefix = "../../../saved-figs/04_sensitivity/explore_c2/"
+outfile_prefix = "../../saved-figs/04_sensitivity/explore_c2/"
 dir.create(outfile_prefix, recursive = TRUE)
 ```
 
@@ -33,8 +33,8 @@ dir.create(outfile_prefix, recursive = TRUE)
 ### Import .mat files
 
 ```{r}
-param_file_name <- "../../../saved-data/04_sensitivity/explore_c2/input.mat"
-alt_file_name <- "../../../saved-data/04_sensitivity/explore_c2/explore_c2.mat"
+param_file_name <- "../../saved-data/04_sensitivity/explore_c2/input.mat"
+alt_file_name <- "../../saved-data/04_sensitivity/explore_c2/explore_c2.mat"
 
 # read files and extract data
 param_file <- readMat(param_file_name)
@@ -105,6 +105,7 @@ Y_df <- Y_df %>%
 ```{r}
 Y_df
 ```
+
 ### Extract parameter values
 
 ```{r}
@@ -234,8 +235,6 @@ c2_fixed_x72_v_gamma
 
 ### X at 72h versus c1
 
-
-
 ```{r}
 c2_fixed_x72_v_c1 <- param_val_df %>%
   select(run, ab) %>%
@@ -268,8 +267,6 @@ ggsave(out_png("c2_fixed_x72_v_params"),
 c2_fixed_x72_v_params
 ```
 
-
-
 ### I versus t by c1
 
 ```{r}
@@ -294,7 +291,6 @@ ggsave(out_png("c2_fixed_I_v_t_by_c1"),
 c2_fixed_I_v_t_by_c1
 ```
 ### X,I v t by c1 combined
-
 
 ```{r}
 c2_fixed_IX_v_t_by_c1 <- (c2_fixed_X_v_t_by_c1 + theme(legend.position = "none")) / 

@@ -29,7 +29,7 @@ source("../../helper_scripts/setup.R")
 
 ```{r}
 # define folder where output will be saved (for example, png images from ggsave)
-outfile_prefix = "../../../saved-figs/04_sensitivity/powers_sqrt_10/"
+outfile_prefix = "../../saved-figs/04_sensitivity/powers_sqrt_10/"
 dir.create(outfile_prefix, recursive = TRUE)
 ```
 
@@ -39,7 +39,7 @@ dir.create(outfile_prefix, recursive = TRUE)
 
 ```{r}
 # import file of input parameters
-param_file <- readMat("../../../saved-data/04_sensitivity/powers_sqrt_10/input.mat")
+param_file <- readMat("../../saved-data/04_sensitivity/powers_sqrt_10/input.mat")
 
 # inspect available variables
 names(param_file)
@@ -49,7 +49,7 @@ names(param_file)
 
 ```{r}
 # import file 
-alt_file <- readMat("../../../saved-data/04_sensitivity/powers_sqrt_10/sens_logscale_sqrt10_genetic.mat")
+alt_file <- readMat("../../saved-data/04_sensitivity/powers_sqrt_10/sens_logscale_sqrt10_genetic.mat")
 
 # inspect available variables
 names(alt_file)
@@ -276,7 +276,7 @@ Y_0h
 
 ```{r}
 # load experimental data from Hornig
-load("../../../saved-data/hornig.rda")
+load("../../saved-data/hornig.rda")
 
 hornig_basal <- hornig %>%
   filter(condition == "basal") %>%
@@ -584,8 +584,6 @@ ggsave(out_png("X_72h_norm_v_scale_1row_samelog"),
 X_72h_norm_v_scale_1row_samelog
 ```
 
-## NEW 2024-01-16
-
 ### Plot I time course (show steady state)
 
 #### Faceted in 2 rows
@@ -783,18 +781,7 @@ I_72h_norm_v_scale_1row_samelog
 ```
 
 
-
-
-## NOT REVIEWED
-
-
-
-## -- WORKSPACE 5/18 --
-
-
-
-
-### Heatmap v1 (x = parameter adjusted, y = scaling factor, color = X (ng/mL))
+### Heatmap (x = parameter adjusted, y = scaling factor, color = X (ng/mL))
 
 
 ```{r}
@@ -812,437 +799,5 @@ Heatmap(X_72h_mat,
         col = viridis(10))
 ```
 
-
-
-
-
-
-
-
-
-
-
-### Heatmap v2 (x = parameter adjusted, y = scaling factor, color = X_norm (fold change from baseline parameter values)))
-
-```{r}
-X_norm_72h_df <- Y_72h %>%
-  select(param_altered, scaling_factor, X_norm) %>%
-  pivot_wider(names_from = param_altered, values_from = X_norm)
-
-X_norm_72h_mat <- as.matrix(X_norm_72h_df[,-1])
-
-rownames(X_norm_72h_mat) <- X_norm_72h_df$scaling_factor
-
-X_norm_72h_mat
-```
-
-
-
-```{r}
-Y_72h
-```
-
-
-
-
-
-
-
-
-
-
-
-
-```{r}
-local_sens_heatmap_v1 <- Heatmap(sens_mat,
-                              heatmap_height = unit(4, "in"),
-                              heatmap_width = unit(4, "in"),
-                              heatmap_legend_param = list(
-                                title = "Relative Sensitivity",
-                                direction = "horizontal",
-                                title_position = "topcenter",
-                                title_gp = gpar(fontsize = 18),
-                                #grid_height = unit(0.5, "in"),
-                                legend_width = unit(2.25, "in")
-                              ),
-                              cluster_columns = FALSE,
-                              column_names_rot = 0,
-                              #column_names_side = "top",
-                              column_labels = expression(alpha, beta, gamma, delta, tau),
-                              column_names_gp = gpar(fontsize = 18),
-                              row_names_gp = gpar(fontsize = 14),
-                              row_labels = c("X at 72h", "I at 72h", 
-                                             TeX(r'(${AUC}_{72h}$ for X)'), 
-                                             TeX(r'(${AUC}_{72h}$ for I)'), 
-                                             TeX(r'($\bar{I}$)'),
-                                             TeX(r'($\bar{X}$)'),
-                                             TeX(r'($T_{50}$ to $\bar{X}$)')),
-                              col = pg_color_func,
-                              rect_gp = gpar(col = "black", lwd = 2))
-
-#local_sens_heatmap
-
-draw(local_sens_heatmap_v1, heatmap_legend_side = "top")
-
-```
-
-##
-
-
-## --STORAGE--
-
-## 72h plots: fraction of initial amount 
-
-### abgd, facet grid, X and I
-
-
-```{r}
-Y_72h
-```
-
-
-```{r}
-Y_72h %>%
-  filter(param_altered == "alpha") %>%
-  pivot_longer(cols = c(X_norm, I_norm),
-               names_to = "species", values_to = "amount")
-```
-
-
-
-
-
-
-```{r}
-inhfrac_abgd_xi_grid_72h <- Y_72h %>%
-  filter(!param_altered %in% c("kappa", "tau")) %>%
-  mutate(param_color = case_when(param_altered == "alpha" ~ param_pal_list$alpha,
-                                 param_altered == "beta" ~ param_pal_list$beta,
-                                 param_altered == "gamma" ~ param_pal_list$gamma,
-                                 param_altered == "delta" ~ param_pal_list$delta)) %>%
-  pivot_longer(cols = c(X_norm, I_norm),
-               names_to = "species", values_to = "amount") %>%
-  mutate(species = ifelse(species == "X_norm", "X", "I")) %>%
-  #mutate(species = ifelse(species == "X_norm", "X", "I")) %>%
-  ggplot(aes(scaling_factor, amount, color = param_altered)) +
-  geom_point(size = 2) +
-  facet_grid(species ~ param_altered, scales = "free", labeller = label_parsed) +
-  xlab("Fraction inhibition") +
-  ylab("Normalized sFLT1") +
-  theme1 +
-  scale_color_manual(values = unlist(param_pal)) +
-  theme(legend.position = "none")
-  
-inhfrac_abgd_xi_grid_72h
-```
-
-```{r}
-# save plot
-ggsave(out_png("inhfrac_abgd_xi_grid_72h"),
-       inhfrac_abgd_xi_grid_72h, width = 12, height = 6)
-```
-
-### abgd, shared axes, X and I
-
-```{r}
-inhfrac_abgd_xi_shared_72h <- Y_72h %>%
-  filter(!param_altered %in% c("kappa", "tau")) %>%
-  pivot_longer(cols = c(X_norm, I_norm),
-               names_to = "species", values_to = "amount") %>%
-  mutate(species = ifelse(species == "X_norm", "Extracellular (X)", "Intracellular (I)")) %>%
-  #mutate(species = ifelse(species == "X_norm", "X", "I")) %>%
-  ggplot(aes(inh_frac, amount, col = param_altered)) +
-  geom_line(size = 2) +
-  facet_wrap(~ species) +
-  xlab("Fraction inhibition") +
-  ylab("Normalized sFLT1") +
-  theme1 +
-  scale_color_manual(values = unlist(param_pal), label = color_labels) +
-  theme(legend.position = "bottom") +
-  guides(color = guide_legend(title = "Parameter inhibited"))
-
-inhfrac_abgd_xi_shared_72h
-```
-
-```{r}
-# save plot
-ggsave(out_png("inhfrac_abgd_xi_shared_72h"),
-       inhfrac_abgd_xi_shared_72h, width = 8, height = 4)
-```
-
-
-## 18h plots: fraction of initial amount 
-
-### All params, faceted, X only
-
-```{r}
-Y_18h %>%
-  ggplot(aes(inh_frac, X_norm)) +
-  geom_point() +
-  facet_wrap(~param_altered) +
-  theme1 +
-  xlab("Fraction inhibition") +
-  ylab("Extracellular sFLT1 \n(normalized)")
-```
-
-### abgd, facet grid, X and I
-
-```{r}
-inhfrac_abgd_xi_grid_18h <- Y_18h %>%
-  filter(!param_altered %in% c("kappa", "tau")) %>%
-  mutate(param_color = case_when(param_altered == "alpha" ~ param_pal$alpha,
-                                 param_altered == "beta" ~ param_pal$beta,
-                                 param_altered == "gamma" ~ param_pal$gamma,
-                                 param_altered == "delta" ~ param_pal$delta)) %>%
-  pivot_longer(cols = c(X_norm, I_norm),
-               names_to = "species", values_to = "amount") %>%
-  mutate(species = ifelse(species == "X_norm", "Extracellular (X)", "Intracellular (I)")) %>%
-  #mutate(species = ifelse(species == "X_norm", "X", "I")) %>%
-  ggplot(aes(inh_frac, amount, color = param_altered)) +
-  geom_line(size = 2) +
-  facet_grid(species ~ param_altered, scales = "free", labeller = label_parsed) +
-  xlab("Fraction inhibition") +
-  ylab("Normalized sFLT1") +
-  theme1 +
-  scale_color_manual(values = unlist(param_pal)) +
-  theme(legend.position = "none")
-  
-inhfrac_abgd_xi_grid_18h
-```
-
-```{r}
-# save plot
-ggsave(out_png("inhfrac_abgd_xi_grid_18h"),
-       inhfrac_abgd_xi_grid_18h, width = 12, height = 6)
-```
-
-### abgd, shared axes, X and I
-
-```{r}
-inhfrac_abgd_xi_shared_18h <- Y_18h %>%
-  filter(!param_altered %in% c("kappa", "tau")) %>%
-  pivot_longer(cols = c(X_norm, I_norm),
-               names_to = "species", values_to = "amount") %>%
-  mutate(species = ifelse(species == "X_norm", "Extracellular (X)", "Intracellular (I)")) %>%
-  #mutate(species = ifelse(species == "X_norm", "X", "I")) %>%
-  ggplot(aes(inh_frac, amount, col = param_altered)) +
-  geom_line(size = 2) +
-  facet_wrap(~ species) +
-  xlab("Fraction inhibition") +
-  ylab("Normalized sFLT1") +
-  theme1 +
-  scale_color_manual(values = unlist(param_pal), label = color_labels) +
-  theme(legend.position = "bottom") +
-  guides(color = guide_legend(title = "Parameter inhibited"))
-
-inhfrac_abgd_xi_shared
-```
-
-```{r}
-# save plot
-ggsave(out_png("inhfrac_abgd_xi_shared_18h"),
-       inhfrac_abgd_xi_shared_18h, width = 8, height = 4)
-```
-
-### Beta only
-
-#### Extracellular
-
-```{r}
-Y_18h %>%
-  filter(param_altered == "beta") %>%
-  ggplot(aes(inh_frac, X_norm)) +
-  geom_line(size = 2, col = param_pal$beta) +
-  theme1 +
-  xlab(TeX(r'(Fraction inhibition of $\beta$)')) +
-  ylab("Extracellular sFLT1 at 18h \n(Normalized to control)") +
-  #geom_hline(yintercept = bref_cm_ratio) + # annotate X level with brefeldin
-  #geom_hline(yintercept = chp_cm_ratio) +   # annotate X level with chlorpromazine
-# or annotate()
-  annotate("segment", x = 0, xend = bref_beta_X_inh_frac, 
-           y = bref_cm_ratio, yend = bref_cm_ratio, lty = 2) +
-  annotate("segment", x = bref_beta_X_inh_frac, xend = bref_beta_X_inh_frac, 
-           y = 0, yend = bref_cm_ratio, lty = 2) +
-  annotate("segment", x = 0, xend = chp_beta_X_inh_frac, 
-           y = chp_cm_ratio, yend = chp_cm_ratio, lty = 1) +
-  annotate("segment", x = chp_beta_X_inh_frac, xend = chp_beta_X_inh_frac, 
-           y = 0, yend = chp_cm_ratio, lty = 1) +
-  annotate("text", x = 0.4, y = bref_cm_ratio + .05, label = "brefeldin", size = 6) +
-  annotate("text", x = 0.2, y = chp_cm_ratio + .05, label = "chlorpromazine", size = 6) +
-  annotate("point", x = bref_beta_X_inh_frac, y = bref_cm_ratio, size = 5) +
-  annotate("point", x = chp_beta_X_inh_frac, y = chp_cm_ratio, size = 5)
-
-
-```
-
-#### Intracellular
-
-```{r}
-Y_18h %>%
-  filter(param_altered == "beta") %>%
-  ggplot(aes(inh_frac, I_norm)) +
-  geom_line(size = 2, col = param_pal$beta) +
-  theme1 +
-  xlab(TeX(r'(Fraction inhibition of $\beta$)')) +
-  ylab("Intracellular sFLT1 at 18h \n(Normalized to control)") +
-  geom_hline(yintercept = bref_lys_ratio, lty = 2) + # annotate X level with brefeldin
-  geom_hline(yintercept = chp_lys_ratio) +   # annotate X level with chlorpromazine
-# or annotate()
-  annotate("text", x = 0.4, y = bref_lys_ratio + .05, label = "brefeldin", size = 6) +
-  annotate("text", x = 0.2, y = chp_lys_ratio + .05, label = "chlorpromazine", size = 6) 
-```
-
-Interesting that the effect of drugs on I at 18h can't be reached with this parameter set
-
-This means the difference in secretion between control and drug treatment has to be 
-
-```{r}
-
-```
-
-
-
-
-```{r}
-pull_mean_ratio <- function(treatment, var){
-  mean_trt_ctrl_ratios %>%
-    filter(treatment_type == treatment & measured_var == var) %>%
-    pull(mean_ratio)
-}
-
-bref_cm_ratio <- pull_mean_ratio("Brefeldin", "sFlt1_CM")
-bref_lys_ratio <- pull_mean_ratio("Brefeldin", "sFlt1_lysate")
-chp_cm_ratio <- pull_mean_ratio("Chlorpromazine", "sFlt1_CM")
-chp_lys_ratio <- pull_mean_ratio("Chlorpromazine", "sFlt1_lysate")
-chq_cm_ratio <- pull_mean_ratio("Chloroquine", "sFlt1_CM")
-chq_lys_ratio <- pull_mean_ratio("Chloroquine", "sFlt1_lysate")
-```
-
-```{r}
-Y_18h_beta <- Y_18h %>%
-  filter(param_altered == "beta")
-
-# find beta inhibition value that maps to brefeldin effect on extracellular sFLT1
-bref_beta_X_inh_frac <- Y_18h_beta$inh_frac[which.min(abs(Y_18h_beta$X_norm - bref_cm_ratio))]
-
-# find beta inhibition value that maps to brefeldin effect on intracellular sFLT1
-bref_beta_I_inh_frac <- Y_18h_beta$inh_frac[which.min(abs(Y_18h_beta$I_norm - bref_lys_ratio))]
-
-# find beta inhibition value that maps to chlorpromazine effect on extracellular sFLT1
-chp_beta_X_inh_frac <- Y_18h_beta$inh_frac[which.min(abs(Y_18h_beta$X_norm - chp_cm_ratio))]
-
-# find beta inhibition value that maps to chlorpromazine effect on intracellular sFLT1
-chp_beta_I_inh_frac <- Y_18h_beta$inh_frac[which.min(abs(Y_18h_beta$I_norm - chp_lys_ratio))]
-```
-
-```{r}
-bref_beta_X_inh_frac
-bref_beta_I_inh_frac
-chp_beta_X_inh_frac
-chp_beta_I_inh_frac
-```
-
-## Time courses for 90% inhibition
-
-```{r}
-names(base_df)
-```
-
-
-
-```{r}
-Y_df_90pct <- Y_df %>%
-  filter(inh_frac == 0.9) %>%
-  select(t, X, I, param_altered) %>%
-  rbind(base_df) %>%
-  mutate(linetype = case_when(#param_altered == "beta" ~ "3",
-                              param_altered == "tau" ~ "2",
-                              TRUE ~ "1"),
-         linesize = ifelse(param_altered == "none", 4, 2))
-
-#levels(Y_df_90pct$param_altered) <- c("none", "alpha", "beta", "gamma", "delta", "kappa", "tau")
-```
-
-```{r}
-Y_df_90pct %>%
-  ggplot(aes(t, X, color = param_altered, lty = linetype)) +
-  geom_line(size = 2) +
-  scale_color_manual(values = unlist(param_pal), label = color_labels) +
-  scale_linetype_manual(values = c("solid", "dotted", "twodash")) + 
-  theme1 +
-  guides(color = guide_legend(title = "Parameter inhibited (90%)",
-                              nrow = 2, byrow = TRUE),
-         lty = "none") +
-  xlab("Time (h)") +
-  ylab("Extracellular sFLT1") +
-  theme(legend.position = c(0.3, 0.8))
-```
-
-### Intracellular
-
-```{r}
-I_tc_inh_90 <- Y_df %>%
-  filter(inh_frac == 0.9) %>%
-  mutate(linetype = case_when(param_altered == "kappa" ~ "2", 
-                              param_altered == "tau" ~ "3",
-                              TRUE ~ "1")) %>%
-  ggplot(aes(t, I, color = param_altered)) +
-  geom_line(data = base_df, aes(t, I), color = "black", size = 6) +
-  geom_line(aes(lty = linetype), size = 3) +
-  scale_color_manual(values = unlist(param_pal), label = color_labels) +
-  scale_linetype_manual(values = c("solid", "twodash", "dotdash", "dotted")) + 
-  theme1 +
-  guides(color = guide_legend(title = "Parameter inhibited (90%)",
-                              nrow = 2, byrow = TRUE),
-         lty = "none") +
-  xlab("Time since inhibitor (h)") +
-  ylab("Intracellular sFLT1 (#/cell)") +
-  theme(legend.position = c(0.7, 0.65))
-
-I_tc_inh_90
-```
-
-```{r}
-# save plot
-ggsave(out_png("I_tc_inh_90"),
-       I_tc_inh_90, width = 6, height = 4)
-```
-
-### Extracellular
-
-```{r}
-X_tc_inh_90 <- Y_df %>%
-  filter(inh_frac == 0.9) %>%
-  mutate(linetype = case_when(param_altered == "tau" ~ "2",
-                              TRUE ~ "1")) %>%
-  ggplot(aes(t, X, color = param_altered)) +
-  geom_line(data = base_df, color = "black", size = 6) +
-  geom_line(aes(lty = linetype), size = 3) +
-  geom_point(data = hornig_basal, color = "black", size = 8) +
-  scale_color_manual(values = unlist(param_pal), label = color_labels) +
-  scale_linetype_manual(values = c("solid", "dashed")) + 
-  theme1 +
-  #guides(color = guide_legend(title = "Parameter inhibited (90%)",
-  #                            nrow = 2, byrow = TRUE), lty = "none") +
-  xlab("Time (h)") +
-  ylab("Extracellular sFLT1 (ng/mL)") +
-  #theme(legend.position = c(0.3, 0.8)) +
-  theme(legend.position = "none") +
-  annotate("text", x = 35, y = 0.8, label = parse(text = "alpha"), color = param_pal$alpha, size = 12) +
-  annotate("text", x = 70, y = 1, label = parse(text = "beta"), color = param_pal$beta, size = 12) +
-  annotate("text", x = 35, y = 4.8, label = parse(text = "gamma"), color = param_pal$gamma, size = 12) +
-  annotate("text", x = 45, y = 3.5, label = parse(text = "delta"), color = param_pal$delta, size = 12) +
-  annotate("text", x = 63, y = 3, label = parse(text = "kappa"), color = param_pal$kappa, size = 12) +
-  annotate("text", x = 68, y = 3.1, label = parse(text = "tau"), color = param_pal$tau, size = 12) +
-  annotate("text", x = 60, y = 1.6, label = "none", color = param_pal$none, size = 8)
-
-X_tc_inh_90
-```
-
-```{r}
-# save plot
-ggsave(out_png("X_tc_inh_90"),
-       X_tc_inh_90, width = 6, height = 4)
-```
 
 
