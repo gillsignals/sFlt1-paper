@@ -105,7 +105,8 @@ To run simulations related to Figures (2, 4, 5, S2, S4, S5, S6, S7, S8), run the
 
 ##### Exporting simulation output
 
-To export output data for analysis in R, set `save_params = 1` and `save_data = 1`, which will save timestamped output files in `02_dde_model/runs`. To run R scripts with these data, manually move output files to ________.
+To export output data for analysis in R, set `save_params = 1` and `save_data = 1`, which will save timestamped output files in `02_dde_model/runs`. 
+To run R scripts with these data, manually move output files to `saved-data/02_dde_model/`.
 
 #### Other files
 
@@ -220,7 +221,7 @@ All other scripts in the folder are called within this driver.
 
 #### Other files
 
-Each driver run mode calls some combination of these files
+Each driver run mode calls some combination of these files.
 
 ##### Setup scripts
 
@@ -268,7 +269,7 @@ Initially contains experimental datasets from listed references and metadata for
 - `03_candidate_models/hjk_opt_candidates_meta.csv`: metadata table used by `03_candidate_models/R/candidate_models_import.Rmd` to correctly format imported simulation output data
 - `package_citations.md`: list of R software packages used in analysis, generated with `report::cite_packages()` after running `helper_scripts/setup.R`.
 
-#### Simulation output file generation
+### Simulation output file generation
 
 Simulation output files are not available through GitHub and must be generated using the Matlab scripts above.
 
