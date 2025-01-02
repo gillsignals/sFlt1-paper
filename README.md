@@ -1,5 +1,5 @@
 # sFlt1-paper
-Modeling and analysis code for sFLT1 trafficking manuscript (Gill et al., in preparation)
+Modeling and analysis code for sFLT1 trafficking manuscript (Gill et al., in preparation).
 
 ## Structure
 
